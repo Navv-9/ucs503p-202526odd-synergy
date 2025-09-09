@@ -1,14 +1,9 @@
-# from django.urls import path
-# from .views import service_list
-
-# urlpatterns = [
-#     path("category/<int:category_id>/", service_list),
-# ]
-
 from django.urls import path
-from .views import ProviderListView, TrustedByFriendsView
+from . import views
 
 urlpatterns = [
-    path("providers/", ProviderListView.as_view(), name="provider-list"),
-    path("providers/<int:provider_id>/trusted/", TrustedByFriendsView.as_view(), name="trusted-by-friends"),
+    path('', views.home, name='home'),
+    path('service/<str:category_name>/', views.service_providers, name='service_providers'),
+    path('provider/<int:provider_id>/', views.provider_detail, name='provider_detail'),
+    path('populate-data/', views.populate_fake_data, name='populate_data'),
 ]
