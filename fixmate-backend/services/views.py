@@ -377,14 +377,20 @@ def populate_fake_data(request):
         {'name': 'Appliance Repair', 'description': 'Expert repair services for all your home appliances.'}
     ]
     
+    # First, create all categories and store them in a dict
+    categories_dict = {}
     created_categories = 0
+    
     for cat_data in categories_data:
         category, created = ServiceCategory.objects.get_or_create(
             name=cat_data['name'],
-            defaults={'description': cat_data['description']}
+            defaults={'description': cat_data['description'], 'icon': ''}
         )
         if created:
             created_categories += 1
+        # IMPORTANT: Refresh from DB to ensure it has an ID
+        category.refresh_from_db()
+        categories_dict[cat_data['name']] = category
     
     providers_data = [
         # Plumbers (7 providers)
@@ -445,36 +451,51 @@ def populate_fake_data(request):
     created_providers = 0
     for provider_data in providers_data:
         try:
-            category = ServiceCategory.objects.get(name=provider_data['category'])
-            provider, created = ServiceProvider.objects.get_or_create(
-                phone_number=provider_data['phone'],
-                defaults={
-                    'name': provider_data['name'],
-                    'category': category,
-                    'rating': provider_data['rating'],
-                    'experience_years': provider_data['experience'],
-                    'total_reviews': 10,
-                    'address': provider_data['address']
-                }
-            )
-            if created:
+            # Get the category from our dict (already saved with ID)
+            category = categories_dict.get(provider_data['category'])
+            
+            if not category:
+                continue
+            
+            # Check if provider already exists
+            existing = ServiceProvider.objects.filter(phone_number=provider_data['phone']).first()
+            
+            if not existing:
+                # Create new provider
+                provider = ServiceProvider(
+                    name=provider_data['name'],
+                    phone_number=provider_data['phone'],
+                    category=category,  # Use the saved category object
+                    rating=provider_data['rating'],
+                    experience_years=provider_data['experience'],
+                    total_reviews=10,
+                    address=provider_data['address'],
+                    email=''
+                )
+                provider.save()
                 created_providers += 1
-        except ServiceCategory.DoesNotExist:
+                
+        except Exception as e:
+            print(f"Error creating provider {provider_data['name']}: {str(e)}")
             continue
     
     # Create test user
-    test_user, created = User.objects.get_or_create(
-        username='testuser',
-        defaults={
-            'email': 'test@example.com',
-            'first_name': 'Test',
-            'last_name': 'User'
-        }
-    )
-    if created:
-        test_user.set_password('test123')
-        test_user.save()
-        UserProfile.objects.create(user=test_user, phone_number='+91-9999999999')
+    try:
+        test_user, created = User.objects.get_or_create(
+            username='testuser',
+            defaults={
+                'email': 'test@example.com',
+                'first_name': 'Test',
+                'last_name': 'User'
+            }
+        )
+        if created:
+            test_user.set_password('test123')
+            test_user.save()
+            UserProfile.objects.create(user=test_user, phone_number='+91-9999999999')
+    except Exception as e:
+        print(f"Error creating test user: {str(e)}")
+        created = False
     
     return JsonResponse({
         'message': 'Fake data populated successfully!',
