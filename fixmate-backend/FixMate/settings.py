@@ -112,6 +112,7 @@ DATABASES = {
         'ENFORCE_SCHEMA': False,
         'CLIENT': {
             'host': os.environ.get('MONGO_URI', 'mongodb://localhost:27017/'),
+            'connect': False,
         }
     }
 }
