@@ -368,31 +368,31 @@ def submit_review(request, provider_id):
 def populate_fake_data(request):
     """Populate database with fake data for testing"""
     
-    categories_data = [
-        {'name': 'Plumber', 'description': 'Expert plumbing services for leaks, installations, and repairs.'},
-        {'name': 'Barber', 'description': 'Professional hairstyling and grooming services at your convenience.'},
-        {'name': 'Carpenter', 'description': 'Skilled carpenters for furniture, repairs, and custom projects.'},
-        {'name': 'Electrician', 'description': 'Certified electricians for installations, repairs, and maintenance.'},
-        {'name': 'AC Service', 'description': 'Professional AC maintenance, servicing, and repair solutions.'},
-        {'name': 'Appliance Repair', 'description': 'Expert repair services for all your home appliances.'}
-    ]
-    
-    # First, create all categories and store them in a dict
-    categories_dict = {}
-    created_categories = 0
-    
-    for cat_data in categories_data:
-        category, created = ServiceCategory.objects.get_or_create(
-            name=cat_data['name'],
-            defaults={'description': cat_data['description'], 'icon': ''}
-        )
-        if created:
-            created_categories += 1
-        # IMPORTANT: Refresh from DB to ensure it has an ID
-        category.refresh_from_db()
-        categories_dict[cat_data['name']] = category
-    
-    providers_data = [
+    try:
+        # Clear all existing data to avoid duplicates
+        ServiceProvider.objects.all().delete()
+        ServiceCategory.objects.all().delete()
+        
+        categories_data = [
+            {'name': 'Plumber', 'description': 'Expert plumbing services for leaks, installations, and repairs.', 'icon': ''},
+            {'name': 'Barber', 'description': 'Professional hairstyling and grooming services at your convenience.', 'icon': ''},
+            {'name': 'Carpenter', 'description': 'Skilled carpenters for furniture, repairs, and custom projects.', 'icon': ''},
+            {'name': 'Electrician', 'description': 'Certified electricians for installations, repairs, and maintenance.', 'icon': ''},
+            {'name': 'AC Service', 'description': 'Professional AC maintenance, servicing, and repair solutions.', 'icon': ''},
+            {'name': 'Appliance Repair', 'description': 'Expert repair services for all your home appliances.', 'icon': ''}
+        ]
+        
+        # Create categories and store them
+        categories_dict = {}
+        for cat_data in categories_data:
+            category = ServiceCategory.objects.create(
+                name=cat_data['name'],
+                description=cat_data['description'],
+                icon=cat_data['icon']
+            )
+            categories_dict[cat_data['name']] = category
+        
+        providers_data = [
         # Plumbers (7 providers)
         {'name': 'Raj Kumar', 'phone': '+91-9876543210', 'category': 'Plumber', 'rating': 4.5, 'experience': 5, 'address': 'Sector 22, Patiala'},
         {'name': 'Suresh Singh', 'phone': '+91-9876543211', 'category': 'Plumber', 'rating': 4.2, 'experience': 3, 'address': 'Urban Estate, Patiala'},
@@ -447,65 +447,59 @@ def populate_fake_data(request):
         {'name': 'Expert Appliance Solutions', 'phone': '+91-9876543250', 'category': 'Appliance Repair', 'rating': 4.3, 'experience': 4, 'address': 'Leela Bhawan, Patiala'},
         {'name': 'Reliable Repairs Hub', 'phone': '+91-9876543251', 'category': 'Appliance Repair', 'rating': 4.9, 'experience': 10, 'address': 'Tripuri Town, Patiala'},
     ]
-    
-    created_providers = 0
-    for provider_data in providers_data:
-        try:
-            # Get the category from our dict (already saved with ID)
-            category = categories_dict.get(provider_data['category'])
-            
-            if not category:
+        
+        # Create providers
+        created_providers = 0
+        for provider_data in providers_data:
+            try:
+                category = categories_dict.get(provider_data['category'])
+                if category:
+                    ServiceProvider.objects.create(
+                        name=provider_data['name'],
+                        phone_number=provider_data['phone'],
+                        category=category,
+                        rating=provider_data['rating'],
+                        experience_years=provider_data['experience'],
+                        total_reviews=10,
+                        address=provider_data['address'],
+                        email=''
+                    )
+                    created_providers += 1
+            except Exception as e:
+                print(f"Error creating provider: {str(e)}")
                 continue
-            
-            # Check if provider already exists
-            existing = ServiceProvider.objects.filter(phone_number=provider_data['phone']).first()
-            
-            if not existing:
-                # Create new provider
-                provider = ServiceProvider(
-                    name=provider_data['name'],
-                    phone_number=provider_data['phone'],
-                    category=category,  # Use the saved category object
-                    rating=provider_data['rating'],
-                    experience_years=provider_data['experience'],
-                    total_reviews=10,
-                    address=provider_data['address'],
-                    email=''
-                )
-                provider.save()
-                created_providers += 1
-                
-        except Exception as e:
-            print(f"Error creating provider {provider_data['name']}: {str(e)}")
-            continue
-    
-    # Create test user
-    try:
-        test_user, created = User.objects.get_or_create(
-            username='testuser',
-            defaults={
-                'email': 'test@example.com',
-                'first_name': 'Test',
-                'last_name': 'User'
-            }
-        )
-        if created:
-            test_user.set_password('test123')
-            test_user.save()
+        
+        # Create test user
+        try:
+            User.objects.filter(username='testuser').delete()
+            test_user = User.objects.create_user(
+                username='testuser',
+                email='test@example.com',
+                password='test123',
+                first_name='Test',
+                last_name='User'
+            )
             UserProfile.objects.create(user=test_user, phone_number='+91-9999999999')
+            user_created = True
+        except Exception as e:
+            print(f"Error creating test user: {str(e)}")
+            user_created = False
+        
+        return JsonResponse({
+            'message': 'Fake data populated successfully!',
+            'categories_created': len(categories_dict),
+            'providers_created': created_providers,
+            'total_categories': ServiceCategory.objects.count(),
+            'total_providers': ServiceProvider.objects.count(),
+            'test_user_created': user_created,
+            'test_credentials': {
+                'username': 'testuser',
+                'password': 'test123'
+            }
+        })
+        
     except Exception as e:
-        print(f"Error creating test user: {str(e)}")
-        created = False
-    
-    return JsonResponse({
-        'message': 'Fake data populated successfully!',
-        'categories_created': created_categories,
-        'providers_created': created_providers,
-        'total_categories': ServiceCategory.objects.count(),
-        'total_providers': ServiceProvider.objects.count(),
-        'test_user_created': created,
-        'test_credentials': {
-            'username': 'testuser',
-            'password': 'test123'
-        }
-    })
+        return JsonResponse({
+            'error': 'Failed to populate data',
+            'message': str(e)
+        }, status=500)
