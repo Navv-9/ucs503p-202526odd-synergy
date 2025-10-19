@@ -1,59 +1,121 @@
 // src/services/api.js
-import axios from 'axios';
 
-const BASE_URL = 'http://localhost:8000'; // Django development server
+const API_BASE_URL = 'http://localhost:8000';
 
-const api = axios.create({
-  baseURL: BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-export const apiService = {
-  // Get all service categories
-  getCategories: async () => {
-    try {
-      const response = await api.get('/');
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching categories:', error);
-      throw error;
-    }
-  },
-
-  // Get providers for a specific category
-  getProviders: async (categoryName) => {
-    try {
-      const response = await api.get(`/service/${categoryName}/`);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching providers:', error);
-      throw error;
-    }
-  },
-
-  // Get detailed info about a provider
-  getProviderDetail: async (providerId) => {
-    try {
-      const response = await api.get(`/provider/${providerId}/`);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching provider details:', error);
-      throw error;
-    }
-  },
-
-  // Populate fake data (for testing)
-  populateData: async () => {
-    try {
-      const response = await api.get('/populate-data/');
-      return response.data;
-    } catch (error) {
-      console.error('Error populating data:', error);
-      throw error;
-    }
+class ApiService {
+  // Helper method to get auth headers
+  getAuthHeaders() {
+    const token = localStorage.getItem('access_token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` })
+    };
   }
-};
 
-export default api;
+  // Handle API responses
+  async handleResponse(response) {
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw data;
+    }
+    
+    return data;
+  }
+
+  // Auth APIs
+  async register(userData) {
+    const response = await fetch(`${API_BASE_URL}/api/register/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(userData)
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async login(credentials) {
+    const response = await fetch(`${API_BASE_URL}/api/login/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(credentials)
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async getUserProfile() {
+    const response = await fetch(`${API_BASE_URL}/api/profile/`, {
+      headers: this.getAuthHeaders()
+    });
+
+    return this.handleResponse(response);
+  }
+
+  // Service Provider APIs
+  async getCategories() {
+    const response = await fetch(`${API_BASE_URL}/`);
+    return this.handleResponse(response);
+  }
+
+  async getProviders(categoryName) {
+    const response = await fetch(`${API_BASE_URL}/service/${categoryName}/`);
+    return this.handleResponse(response);
+  }
+
+  async getProviderDetail(providerId) {
+    const response = await fetch(`${API_BASE_URL}/provider/${providerId}/`);
+    return this.handleResponse(response);
+  }
+
+  // Review APIs
+  async submitReview(providerId, reviewData) {
+    const response = await fetch(`${API_BASE_URL}/api/provider/${providerId}/review/`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(reviewData)
+    });
+
+    return this.handleResponse(response);
+  }
+
+  // Booking APIs
+  async createBooking(bookingData) {
+    const response = await fetch(`${API_BASE_URL}/api/bookings/create/`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(bookingData)
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async getUserBookings() {
+    const response = await fetch(`${API_BASE_URL}/api/bookings/`, {
+      headers: this.getAuthHeaders()
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async cancelBooking(bookingId) {
+    const response = await fetch(`${API_BASE_URL}/api/bookings/${bookingId}/cancel/`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders()
+    });
+
+    return this.handleResponse(response);
+  }
+
+  // Utility
+  async populateData() {
+    const response = await fetch(`${API_BASE_URL}/populate-data/`);
+    return this.handleResponse(response);
+  }
+}
+
+export const apiService = new ApiService();

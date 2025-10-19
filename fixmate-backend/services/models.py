@@ -75,6 +75,7 @@ class Booking(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='bookings')
     provider = models.ForeignKey(ServiceProvider, on_delete=models.CASCADE, related_name='bookings')
     booking_date = models.DateTimeField()
+    booking_time = models.TimeField(null=True, blank=True)
     status_choices = [
         ('pending', 'Pending'),
         ('confirmed', 'Confirmed'),
@@ -84,6 +85,10 @@ class Booking(models.Model):
     status = models.CharField(max_length=10, choices=status_choices, default='pending')
     notes = models.TextField(max_length=300, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     
+    class Meta:
+        ordering = ['-booking_date', '-booking_time']
+
     def __str__(self):
         return f"{self.user.username} -> {self.provider.name} on {self.booking_date.date()}"
