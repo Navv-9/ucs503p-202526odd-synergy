@@ -51,6 +51,11 @@ const ProviderDetail = () => {
     try {
       setLoading(true);
       const data = await apiService.getProviderDetail(providerId);
+      console.log('Full API response:', data);
+      console.log('Reviews data:', data.reviews);
+      console.log('Contact reviews:', data.reviews?.from_contacts);
+      console.log('Other reviews:', data.reviews?.from_others);
+      console.log('Trusted by:', data.trusted_by);
       setProvider(data.provider);
       setTrustedBy(data.trusted_by);
 
