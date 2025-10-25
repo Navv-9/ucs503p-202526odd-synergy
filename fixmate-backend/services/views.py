@@ -24,7 +24,7 @@ def register(request):
         
         return Response({
             'user': {
-                'id': user.id,
+                'id': str(user.id),
                 'username': user.username,
                 'email': user.email,
                 'first_name': user.first_name,
@@ -57,7 +57,7 @@ def login(request):
         
         return Response({
             'user': {
-                'id': user.id,
+                'id': str(user.id),
                 'username': user.username,
                 'email': user.email,
                 'first_name': user.first_name,
