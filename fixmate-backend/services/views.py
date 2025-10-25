@@ -134,13 +134,6 @@ def get_trusted_friends(provider, request):
     """Get list of friends who trusted this provider - randomized per provider"""
     import random
     
-    if not request.user.is_authenticated:
-        return {
-            'count': 0,
-            'message': 'No friends have used this service yet',
-            'names': []
-        }
-    # Set seed based on provider ID for consistency
     random.seed(hash(provider.name))
     
     fake_contacts = [
@@ -150,19 +143,15 @@ def get_trusted_friends(provider, request):
         {'name': 'Priya', 'phone': '+91-9876543223'},
     ]
     
-    num_trusted = random.randint(0, len(fake_contacts))
-    trusted_friends = random.sample(fake_contacts, num_trusted) if num_trusted > 0 else []
+    # Changed: Guarantee at least 1 trusted friend
+    num_trusted = random.randint(1, len(fake_contacts))  # Changed from 0
+    
+    trusted_friends = random.sample(fake_contacts, num_trusted)
     trusted_count = len(trusted_friends)
     
     random.seed()
     
-    if trusted_count == 0:
-        return {
-            'count': 0,
-            'message': 'No friends have used this service yet',
-            'names': []
-        }
-    elif trusted_count == 1:
+    if trusted_count == 1:
         return {
             'count': 1,
             'message': f'Trusted by {trusted_friends[0]["name"]}',
