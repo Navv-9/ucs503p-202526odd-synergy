@@ -193,19 +193,25 @@ def provider_detail(request, provider_id):
     
     # Get actual reviews from database
     db_reviews = Review.objects.filter(provider_id=provider_id).order_by('-created_at')
-    
-    # Convert DB reviews to list
     actual_reviews = []
     for review in db_reviews:
         actual_reviews.append({
             'user': review.user.username,
-            'is_contact': False,  # You can enhance this later with actual contacts
+            'is_contact': False,
             'rating': review.rating,
             'comment': review.comment,
             'is_trusted': review.is_trusted,
             'service_date': str(review.service_date) if review.service_date else None,
             'created_at': review.created_at.strftime('%B %d, %Y')
         })
+    
+    fake_contacts = ['Harshita', 'Lakshit', 'Rohan', 'Priya']
+    
+    # DON'T seed here - let it be truly random
+    # random.seed(hash(str(provider._id)))  # REMOVE THIS LINE
+    
+    contact_reviews = []
+    num_contact_reviews = random.randint(1, 3)  # At least 1 contact review
     
     review_templates = [
         {'rating': 5, 'comment': 'Excellent service! Very professional and punctual.', 'is_trusted': True},
@@ -217,29 +223,20 @@ def provider_detail(request, provider_id):
         {'rating': 5, 'comment': 'Best in the area! Very skilled and honest.', 'is_trusted': True},
         {'rating': 2, 'comment': 'Overpriced and slow service.', 'is_trusted': False},
     ]
-    # Check if user is authenticated before showing contact reviews
-    contact_reviews = []
-    if request.user.is_authenticated:
-        fake_contacts = ['Harshita', 'Lakshit', 'Rohan', 'Priya']
-        random.seed(hash(str(provider._id)))
-        
-        num_contact_reviews = random.randint(0, 3)
-        
     
-        if num_contact_reviews > 0:
-            selected_contacts = random.sample(fake_contacts, num_contact_reviews)
-            for contact_name in selected_contacts:
-                review_template = random.choice(review_templates)
-                contact_reviews.append({
-                    'user': contact_name,
-                    'is_contact': True,
-                    'rating': review_template['rating'],
-                    'comment': review_template['comment'],
-                    'is_trusted': review_template['is_trusted'],
-                    'service_date': None,
-                    'created_at': 'Recent'
-                })
-
+    selected_contacts = random.sample(fake_contacts, num_contact_reviews)
+    for contact_name in selected_contacts:
+        review_template = random.choice(review_templates)
+        contact_reviews.append({
+            'user': contact_name,
+            'is_contact': True,
+            'rating': review_template['rating'],
+            'comment': review_template['comment'],
+            'is_trusted': review_template['is_trusted'],
+            'service_date': None,
+            'created_at': 'Recent'
+        })
+    
     random_names = ['Amit K.', 'Sneha P.', 'Rajesh M.', 'Pooja S.', 'Vikram T.', 'Anita R.']
     other_reviews = []
     num_other_reviews = random.randint(2, 5)
@@ -256,11 +253,7 @@ def provider_detail(request, provider_id):
             'created_at': f'{random.randint(1, 30)} days ago'
         })
     
-    random.seed()
-    
-    # Combine all reviews: actual reviews + fake contact reviews + fake other reviews
-    all_reviews_combined = actual_reviews + contact_reviews + other_reviews
-    
+    all_reviews_combined = contact_reviews + actual_reviews + other_reviews
     trusted_friends = get_trusted_friends(provider, request)
     
     return JsonResponse({
@@ -276,10 +269,10 @@ def provider_detail(request, provider_id):
             'total_reviews': provider.total_reviews,
         },
         'trusted_by': trusted_friends,
-        'recent_reviews': all_reviews_combined,  # Add this field that frontend expects
+        'recent_reviews': all_reviews_combined,
         'reviews': {
             'from_contacts': contact_reviews,
-            'from_others': other_reviews + actual_reviews,  # Include actual reviews here
+            'from_others': other_reviews + actual_reviews,
             'total': len(all_reviews_combined)
         }
     })
