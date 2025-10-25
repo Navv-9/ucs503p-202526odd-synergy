@@ -51,26 +51,24 @@ const ProviderDetail = () => {
     try {
       setLoading(true);
       const data = await apiService.getProviderDetail(providerId);
+
       console.log('Full API response:', data);
-      console.log('Reviews data:', data.reviews);
-      console.log('Contact reviews:', data.reviews?.from_contacts);
-      console.log('Other reviews:', data.reviews?.from_others);
-      console.log('Trusted by:', data.trusted_by);
+
       setProvider(data.provider);
       setTrustedBy(data.trusted_by);
 
-      // Split reviews into contact and other reviews
-      const allReviews = data.recent_reviews || [];
-      const contacts = allReviews.filter(review => review.is_contact);
-      const others = allReviews.filter(review => !review.is_contact);
-
+      // Use the reviews object from backend
       if (data.reviews) {
         setContactReviews(data.reviews.from_contacts || []);
         setOtherReviews(data.reviews.from_others || []);
+
+        console.log('Contact reviews set:', data.reviews.from_contacts);
+        console.log('Other reviews set:', data.reviews.from_others);
       } else {
         setContactReviews([]);
         setOtherReviews([]);
       }
+
       setError(null);
     } catch (err) {
       setError('Failed to load provider details. Please try again.');
