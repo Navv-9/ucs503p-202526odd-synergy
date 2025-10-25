@@ -292,10 +292,11 @@ def create_booking(request):
     serializer = BookingSerializer(data=request.data)
     
     if serializer.is_valid():
-        serializer.save(user=request.user)
+        # Save with user ID, not user object
+        booking = serializer.save(user_id=request.user.id)
         return Response({
             'message': 'Booking created successfully!',
-            'booking': serializer.data
+            'booking': BookingSerializer(booking).data
         }, status=status.HTTP_201_CREATED)
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
