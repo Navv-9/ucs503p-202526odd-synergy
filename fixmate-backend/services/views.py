@@ -91,7 +91,7 @@ def home(request):
         'message': 'FixMate API - Service Categories',
         'categories': [
             {
-                'id': str(cat.id) if cat.id else str(cat._id),
+                'id': str(cat.pk),
                 'name': cat.name,
                 'description': cat.description,
                 'icon': cat.icon
