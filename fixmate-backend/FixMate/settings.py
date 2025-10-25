@@ -58,6 +58,8 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'AUTH_HEADER_TYPES': ('Bearer',),
+    'USER_ID_FIELD': 'username',
+    'USER_ID_CLAIM': 'username',
 }
 
 CORS_ALLOWED_ORIGINS = [
