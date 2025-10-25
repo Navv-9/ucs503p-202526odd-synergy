@@ -111,7 +111,7 @@ const ProviderDetail = () => {
 
     try {
       const bookingPayload = {
-        provider: parseInt(provider.id),
+        provider_id: provider.id,
         booking_date: bookingData.booking_date,
         booking_time: bookingData.booking_time,
         notes: bookingData.notes || ''

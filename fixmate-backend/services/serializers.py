@@ -12,7 +12,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = UserProfile
-        fields = ['user', 'phone_number', 'created_at']
+        fields = ['user', 'phone_number', 'address']  # FIXED: Removed created_at
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
@@ -25,19 +25,22 @@ class RegisterSerializer(serializers.ModelSerializer):
     
     def validate_username(self, value):
         """Check if username already exists"""
-        if User.objects.filter(username=value).exists():
+        # FIXED: Use list() instead of .exists()
+        if len(list(User.objects.filter(username=value))) > 0:
             raise serializers.ValidationError("This username is already taken.")
         return value
     
     def validate_email(self, value):
         """Check if email already exists"""
-        if value and User.objects.filter(email=value).exists():
+        # FIXED: Use list() instead of .exists()
+        if value and len(list(User.objects.filter(email=value))) > 0:
             raise serializers.ValidationError("This email is already registered.")
         return value
     
     def validate_phone_number(self, value):
         """Check if phone number already exists"""
-        if UserProfile.objects.filter(phone_number=value).exists():
+        # FIXED: Use list() instead of .exists()
+        if len(list(UserProfile.objects.filter(phone_number=value))) > 0:
             raise serializers.ValidationError("This phone number is already registered.")
         return value
     
@@ -64,14 +67,59 @@ class RegisterSerializer(serializers.ModelSerializer):
         return user
 
 class BookingSerializer(serializers.ModelSerializer):
-    provider_name = serializers.CharField(source='provider.name', read_only=True)
-    provider_category = serializers.CharField(source='provider.category.name', read_only=True)
-    provider_phone = serializers.CharField(source='provider.phone_number', read_only=True)
+    provider_id = serializers.CharField(max_length=24)
     user_name = serializers.CharField(source='user.username', read_only=True)
+    provider_name = serializers.SerializerMethodField(read_only=True)
+    provider_category = serializers.SerializerMethodField(read_only=True)
+    provider_phone = serializers.SerializerMethodField(read_only=True)
     
     class Meta:
         model = Booking
-        fields = ['id', 'user', 'user_name', 'provider', 'provider_name', 'provider_category', 
-                  'provider_phone', 'booking_date', 'booking_time', 'status', 'notes', 
-                  'created_at', 'updated_at']
-        read_only_fields = ['user', 'created_at', 'updated_at']
+        fields = ['id', 'user', 'user_name', 'provider_id', 'provider_name', 
+                  'provider_category', 'provider_phone', 'booking_date', 'booking_time', 
+                  'status', 'notes', 'created_at']
+        read_only_fields = ['user', 'created_at', 'status']
+    
+    def get_provider_name(self, obj):
+        """Get provider name from provider_id"""
+        from bson import ObjectId
+        try:
+            provider = ServiceProvider.objects.get(_id=ObjectId(obj.provider_id))
+            return provider.name
+        except:
+            return "Unknown Provider"
+    
+    def get_provider_category(self, obj):
+        """Get provider category from provider_id"""
+        from bson import ObjectId
+        try:
+            provider = ServiceProvider.objects.get(_id=ObjectId(obj.provider_id))
+            return provider.category_name
+        except:
+            return "Unknown"
+    
+    def get_provider_phone(self, obj):
+        """Get provider phone from provider_id"""
+        from bson import ObjectId
+        try:
+            provider = ServiceProvider.objects.get(_id=ObjectId(obj.provider_id))
+            return provider.phone_number
+        except:
+            return ""
+
+    def validate_provider_id(self, value):
+        """Validate that provider_id is a valid ObjectId"""
+        from bson import ObjectId
+        from bson.errors import InvalidId
+        try:
+            ObjectId(value)
+            return value
+        except (InvalidId, ValueError):
+            raise serializers.ValidationError("Invalid provider ID")
+    
+    def to_representation(self, instance):
+        """Return _id as the id field"""
+        representation = super().to_representation(instance)
+        if hasattr(instance, '_id') and instance._id:
+            representation['id'] = str(instance._id)
+        return representation

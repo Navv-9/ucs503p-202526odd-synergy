@@ -1,94 +1,123 @@
-# services/models.py
-from django.db import models
+from djongo import models
 from django.contrib.auth.models import User
-from django.core.validators import MinValueValidator, MaxValueValidator
-
-class UserProfile(models.Model):
-    """Extended user profile"""
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
-    phone_number = models.CharField(max_length=15, unique=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    def __str__(self):
-        return f"{self.user.username} - {self.phone_number}"
-
-class Contact(models.Model):
-    """Store user's contacts for social layer"""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='contacts')
-    contact_name = models.CharField(max_length=100)
-    contact_phone = models.CharField(max_length=15)
-    is_registered = models.BooleanField(default=False)
-    registered_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='contacted_by')
-    
-    class Meta:
-        unique_together = ['user', 'contact_phone']
-    
-    def __str__(self):
-        return f"{self.user.username}'s contact: {self.contact_name}"
+from bson import ObjectId
 
 class ServiceCategory(models.Model):
-    """Service categories like Plumber, Barber, etc."""
-    name = models.CharField(max_length=50, unique=True)
-    description = models.TextField(max_length=200, blank=True)
+    id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField()
     icon = models.CharField(max_length=50, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
-        verbose_name_plural = "Service Categories"
+        db_table = 'service_category'
     
     def __str__(self):
         return self.name
 
+
 class ServiceProvider(models.Model):
-    """Individual service providers"""
-    name = models.CharField(max_length=100)
-    phone_number = models.CharField(max_length=15)
-    email = models.EmailField(blank=True)
-    category = models.ForeignKey(ServiceCategory, on_delete=models.CASCADE, related_name='providers')
-    address = models.TextField(max_length=200, blank=True)
-    experience_years = models.IntegerField(default=0, validators=[MinValueValidator(0)])
-    rating = models.FloatField(default=0.0, validators=[MinValueValidator(0.0), MaxValueValidator(5.0)])
+    _id = models.ObjectIdField(primary_key=True, db_column='_id')  # Make it primary key
+    name = models.CharField(max_length=200)
+    phone_number = models.CharField(max_length=20, unique=True)
+    email = models.EmailField(blank=True, null=True)
+    category_name = models.CharField(max_length=100, default='Unknown', blank=True)
+    rating = models.FloatField(default=0.0)
+    original_rating = models.FloatField(default=0.0)
     total_reviews = models.IntegerField(default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
+    experience_years = models.IntegerField(default=0)
+    address = models.TextField()
+
+    class Meta:
+        db_table = 'service_provider'
+    
+    @property
+    def id(self):
+        """Return string representation of _id"""
+        return str(self._id) if self._id else None
+    
+    def save(self, *args, **kwargs):
+        """Ensure _id exists before saving"""
+        if not self._id:
+            self._id = ObjectId()
+        super().save(*args, **kwargs)
     
     def __str__(self):
-        return f"{self.name} - {self.category.name}"
+        return f"{self.name} - {self.category_name}"
+
+
+class UserProfile(models.Model):
+    id = models.AutoField(primary_key=True)
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    phone_number = models.CharField(max_length=20)
+    address = models.TextField(blank=True)
+    
+    class Meta:
+        db_table = 'user_profile'
+    
+    def __str__(self):
+        return self.user.username
+
+
+class Contact(models.Model):
+    id = models.AutoField(primary_key=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='contacts')
+    name = models.CharField(max_length=200)
+    phone_number = models.CharField(max_length=20)
+    
+    class Meta:
+        db_table = 'contact'
+    
+    def __str__(self):
+        return f"{self.name} ({self.user.username})"
+
 
 class Review(models.Model):
-    """Reviews and trust system"""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='reviews')
-    provider = models.ForeignKey(ServiceProvider, on_delete=models.CASCADE, related_name='reviews')
-    rating = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
-    comment = models.TextField(max_length=500, blank=True)
-    is_trusted = models.BooleanField(default=False)  # Thumbs up/down
-    service_date = models.DateTimeField(null=True, blank=True)
+    id = models.AutoField(primary_key=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    provider_id = models.CharField(max_length=24)  # Store ObjectId as string
+    rating = models.IntegerField()
+    comment = models.TextField(blank=True)
+    is_trusted = models.BooleanField(default=False)
+    service_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
-        unique_together = ['user', 'provider']  # One review per user per provider
+        db_table = 'review'
     
     def __str__(self):
-        return f"{self.user.username} -> {self.provider.name} ({self.rating}★)"
+        return f"{self.user.username} - Provider {self.provider_id} ({self.rating}★)"
+
 
 class Booking(models.Model):
-    """Track bookings/appointments"""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='bookings')
-    provider = models.ForeignKey(ServiceProvider, on_delete=models.CASCADE, related_name='bookings')
-    booking_date = models.DateTimeField()
-    booking_time = models.TimeField(null=True, blank=True)
-    status_choices = [
+    _id = models.ObjectIdField(primary_key=True, db_column='_id')  # Use ObjectId as primary key
+    STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('confirmed', 'Confirmed'),
         ('completed', 'Completed'),
-        ('cancelled', 'Cancelled')
+        ('cancelled', 'Cancelled'),
     ]
-    status = models.CharField(max_length=10, choices=status_choices, default='pending')
-    notes = models.TextField(max_length=300, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
     
-    class Meta:
-        ordering = ['-booking_date', '-booking_time']
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    provider_id = models.CharField(max_length=24)  # Store ObjectId as string
+    booking_date = models.DateField()
+    booking_time = models.TimeField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        db_table = 'services_booking'  # Match your MongoDB collection name
+    
+    @property
+    def id(self):
+        """Return string representation of _id"""
+        return str(self._id) if self._id else None
+    
+    def save(self, *args, **kwargs):
+        """Ensure _id exists before saving"""
+        if not self._id:
+            self._id = ObjectId()
+        super().save(*args, **kwargs)
+    
     def __str__(self):
-        return f"{self.user.username} -> {self.provider.name} on {self.booking_date.date()}"
+        return f"{self.user.username} - Provider {self.provider_id} ({self.booking_date})"

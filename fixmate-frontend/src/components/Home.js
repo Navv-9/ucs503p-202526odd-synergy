@@ -109,7 +109,7 @@ const Home = () => {
             
             return (
               <div
-                key={category.id}
+                key={category.id || category.name}
                 className="category-card"
                 onClick={() => handleCategoryClick(category.name)}
               >

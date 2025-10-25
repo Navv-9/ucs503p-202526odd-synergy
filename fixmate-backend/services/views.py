@@ -7,6 +7,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
+from bson import ObjectId
+from bson.errors import InvalidId
 from .models import ServiceCategory, ServiceProvider, Review, UserProfile, Contact, Booking
 from .serializers import RegisterSerializer, UserSerializer, UserProfileSerializer, BookingSerializer
 
@@ -89,7 +91,7 @@ def home(request):
         'message': 'FixMate API - Service Categories',
         'categories': [
             {
-                'id': cat.id,
+                'id': str(cat.id) if cat.id else str(cat._id),
                 'name': cat.name,
                 'description': cat.description,
                 'icon': cat.icon
@@ -101,14 +103,14 @@ def service_providers(request, category_name):
     """Show providers for a specific service category with social proof"""
     try:
         category = ServiceCategory.objects.get(name__iexact=category_name)
-        providers = ServiceProvider.objects.filter(category=category)
+        providers = ServiceProvider.objects.filter(category_name=category_name)
         
         providers_data = []
         for provider in providers:
             trusted_friends = get_trusted_friends(provider, request)
             
             providers_data.append({
-                'id': provider.id,
+                'id': str(provider._id),  # Use _id directly
                 'name': provider.name,
                 'phone': provider.phone_number,
                 'email': provider.email,
@@ -132,8 +134,14 @@ def get_trusted_friends(provider, request):
     """Get list of friends who trusted this provider - randomized per provider"""
     import random
     
-    # Set seed based on provider ID for consistency (same provider = same friends)
-    random.seed(provider.id)
+    if not request.user.is_authenticated:
+        return {
+            'count': 0,
+            'message': 'No friends have used this service yet',
+            'names': []
+        }
+    # Set seed based on provider ID for consistency
+    random.seed(hash(provider.name))
     
     fake_contacts = [
         {'name': 'Harshita', 'phone': '+91-9876543220'},
@@ -142,14 +150,10 @@ def get_trusted_friends(provider, request):
         {'name': 'Priya', 'phone': '+91-9876543223'},
     ]
     
-    # Randomly decide how many friends trusted this provider (0-4)
     num_trusted = random.randint(0, len(fake_contacts))
-    
-    # Randomly select which friends trusted this provider
     trusted_friends = random.sample(fake_contacts, num_trusted) if num_trusted > 0 else []
     trusted_count = len(trusted_friends)
     
-    # Reset random seed to avoid affecting other random operations
     random.seed()
     
     if trusted_count == 0:
@@ -178,23 +182,30 @@ def get_trusted_friends(provider, request):
         }
 
 def provider_detail(request, provider_id):
-    """Get detailed info about a specific provider with reviews from contacts and others"""
+    """Get detailed info about a specific provider with reviews"""
     import random
     
-    provider = get_object_or_404(ServiceProvider, id=provider_id)
+    try:
+        object_id = ObjectId(provider_id)
+        provider = get_object_or_404(ServiceProvider, _id=object_id)
+    except (InvalidId, ValueError):
+        return JsonResponse({'error': 'Invalid provider ID'}, status=400)
     
-    # Get all reviews for this provider
-    all_reviews = Review.objects.filter(provider=provider).order_by('-created_at')
+    # Get actual reviews from database
+    db_reviews = Review.objects.filter(provider_id=provider_id).order_by('-created_at')
     
-    # Simulate contact reviews (these would be from user's actual contacts)
-    fake_contacts = ['Harshita', 'Lakshit', 'Rohan', 'Priya']
-    
-    # Set seed for consistency
-    random.seed(provider.id)
-    
-    # Generate reviews from contacts (some positive, some negative)
-    contact_reviews = []
-    num_contact_reviews = random.randint(0, 3)
+    # Convert DB reviews to list
+    actual_reviews = []
+    for review in db_reviews:
+        actual_reviews.append({
+            'user': review.user.username,
+            'is_contact': False,  # You can enhance this later with actual contacts
+            'rating': review.rating,
+            'comment': review.comment,
+            'is_trusted': review.is_trusted,
+            'service_date': str(review.service_date) if review.service_date else None,
+            'created_at': review.created_at.strftime('%B %d, %Y')
+        })
     
     review_templates = [
         {'rating': 5, 'comment': 'Excellent service! Very professional and punctual.', 'is_trusted': True},
@@ -206,22 +217,29 @@ def provider_detail(request, provider_id):
         {'rating': 5, 'comment': 'Best in the area! Very skilled and honest.', 'is_trusted': True},
         {'rating': 2, 'comment': 'Overpriced and slow service.', 'is_trusted': False},
     ]
+    # Check if user is authenticated before showing contact reviews
+    contact_reviews = []
+    if request.user.is_authenticated:
+        fake_contacts = ['Harshita', 'Lakshit', 'Rohan', 'Priya']
+        random.seed(hash(str(provider._id)))
+        
+        num_contact_reviews = random.randint(0, 3)
+        
     
-    if num_contact_reviews > 0:
-        selected_contacts = random.sample(fake_contacts, num_contact_reviews)
-        for contact_name in selected_contacts:
-            review_template = random.choice(review_templates)
-            contact_reviews.append({
-                'user': contact_name,
-                'is_contact': True,
-                'rating': review_template['rating'],
-                'comment': review_template['comment'],
-                'is_trusted': review_template['is_trusted'],
-                'service_date': None,
-                'created_at': 'Recent'
-            })
-    
-    # Generate random other reviews
+        if num_contact_reviews > 0:
+            selected_contacts = random.sample(fake_contacts, num_contact_reviews)
+            for contact_name in selected_contacts:
+                review_template = random.choice(review_templates)
+                contact_reviews.append({
+                    'user': contact_name,
+                    'is_contact': True,
+                    'rating': review_template['rating'],
+                    'comment': review_template['comment'],
+                    'is_trusted': review_template['is_trusted'],
+                    'service_date': None,
+                    'created_at': 'Recent'
+                })
+
     random_names = ['Amit K.', 'Sneha P.', 'Rajesh M.', 'Pooja S.', 'Vikram T.', 'Anita R.']
     other_reviews = []
     num_other_reviews = random.randint(2, 5)
@@ -238,31 +256,31 @@ def provider_detail(request, provider_id):
             'created_at': f'{random.randint(1, 30)} days ago'
         })
     
-    # Reset seed
     random.seed()
     
-    # Combine reviews - contacts first, then others
-    all_reviews_data = contact_reviews + other_reviews
+    # Combine all reviews: actual reviews + fake contact reviews + fake other reviews
+    all_reviews_combined = actual_reviews + contact_reviews + other_reviews
     
     trusted_friends = get_trusted_friends(provider, request)
     
     return JsonResponse({
         'provider': {
-            'id': provider.id,
+            'id': str(provider._id),
             'name': provider.name,
             'phone': provider.phone_number,
             'email': provider.email,
-            'category': provider.category.name,
+            'category': provider.category_name,
             'address': provider.address,
             'experience_years': provider.experience_years,
             'rating': provider.rating,
             'total_reviews': provider.total_reviews,
         },
         'trusted_by': trusted_friends,
+        'recent_reviews': all_reviews_combined,  # Add this field that frontend expects
         'reviews': {
             'from_contacts': contact_reviews,
-            'from_others': other_reviews,
-            'total': len(all_reviews_data)
+            'from_others': other_reviews + actual_reviews,  # Include actual reviews here
+            'total': len(all_reviews_combined)
         }
     })
 
@@ -286,11 +304,11 @@ def create_booking(request):
 @permission_classes([IsAuthenticated])
 def get_user_bookings(request):
     """Get all bookings for current user"""
-    bookings = Booking.objects.filter(user=request.user)
-    serializer = BookingSerializer(bookings, many=True)
+    bookings_list = list(Booking.objects.filter(user=request.user))  # FIXED: Use list()
+    serializer = BookingSerializer(bookings_list, many=True)
     
     return Response({
-        'count': bookings.count(),
+        'count': len(bookings_list),  # FIXED: Use len() instead of .count()
         'bookings': serializer.data
     })
 
@@ -299,7 +317,11 @@ def get_user_bookings(request):
 def cancel_booking(request, booking_id):
     """Cancel a booking"""
     try:
-        booking = Booking.objects.get(id=booking_id, user=request.user)
+        # Convert string booking_id to ObjectId
+        from bson import ObjectId
+        from bson.errors import InvalidId
+        object_id = ObjectId(booking_id)
+        booking = Booking.objects.get(_id=object_id, user=request.user)
         booking.status = 'cancelled'
         booking.save()
         
@@ -308,20 +330,27 @@ def cancel_booking(request, booking_id):
             'message': 'Booking cancelled successfully!',
             'booking': serializer.data
         })
+    except (InvalidId, ValueError):
+        return Response({'error': 'Invalid booking ID'}, status=status.HTTP_400_BAD_REQUEST)
     except Booking.DoesNotExist:
         return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
-
+    
+    
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def submit_review(request, provider_id):
     """Submit a review for a service provider"""
     try:
-        provider = ServiceProvider.objects.get(id=provider_id)
+        object_id = ObjectId(provider_id)
+        provider = ServiceProvider.objects.get(_id=object_id)
+    except (InvalidId, ValueError):
+        return Response({'error': 'Invalid provider ID'}, status=status.HTTP_400_BAD_REQUEST)
     except ServiceProvider.DoesNotExist:
         return Response({'error': 'Provider not found'}, status=status.HTTP_404_NOT_FOUND)
     
-    # Check if user already reviewed this provider
-    existing_review = Review.objects.filter(user=request.user, provider=provider).first()
+    # Check if user already reviewed - use list() instead of .exists()
+    existing_reviews = list(Review.objects.filter(user=request.user, provider_id=str(provider_id)))
+    existing_review = existing_reviews[0] if existing_reviews else None
     
     rating = request.data.get('rating')
     comment = request.data.get('comment', '')
@@ -331,34 +360,44 @@ def submit_review(request, provider_id):
         return Response({'error': 'Rating must be between 1 and 5'}, status=status.HTTP_400_BAD_REQUEST)
     
     if existing_review:
-        # Update existing review
-        existing_review.rating = rating
+        existing_review.rating = int(rating)
         existing_review.comment = comment
         existing_review.is_trusted = is_trusted
         existing_review.save()
         message = 'Review updated successfully!'
     else:
-        # Create new review
         Review.objects.create(
             user=request.user,
-            provider=provider,
-            rating=rating,
+            provider_id=str(provider_id),
+            rating=int(rating),
             comment=comment,
             is_trusted=is_trusted
         )
         message = 'Review submitted successfully!'
     
-    # Recalculate provider's average rating
-    all_reviews = Review.objects.filter(provider=provider)
-    avg_rating = sum(r.rating for r in all_reviews) / len(all_reviews)
-    provider.rating = round(avg_rating, 1)
-    provider.total_reviews = all_reviews.count()
+    # Calculate weighted average - use list() instead of queryset methods
+    real_reviews_list = list(Review.objects.filter(provider_id=str(provider_id)))
+    fake_count = 10
+    fake_rating = provider.original_rating
+    
+    if len(real_reviews_list) > 0:  # Changed from .exists()
+        avg_real = sum(r.rating for r in real_reviews_list) / len(real_reviews_list)
+        real_count = len(real_reviews_list)
+        
+        provider.rating = round(
+            (fake_rating * fake_count + avg_real * real_count) / (fake_count + real_count), 
+            1
+        )
+        provider.total_reviews = fake_count + real_count
+    else:
+        provider.total_reviews = fake_count
+    
     provider.save()
     
     return Response({
         'message': message,
         'provider': {
-            'id': provider.id,
+            'id': str(provider._id),
             'name': provider.name,
             'rating': provider.rating,
             'total_reviews': provider.total_reviews
@@ -368,31 +407,28 @@ def submit_review(request, provider_id):
 def populate_fake_data(request):
     """Populate database with fake data for testing"""
     
-    try:
-        # Clear all existing data to avoid duplicates
-        ServiceProvider.objects.all().delete()
-        ServiceCategory.objects.all().delete()
-        
-        categories_data = [
-            {'name': 'Plumber', 'description': 'Expert plumbing services for leaks, installations, and repairs.', 'icon': ''},
-            {'name': 'Barber', 'description': 'Professional hairstyling and grooming services at your convenience.', 'icon': ''},
-            {'name': 'Carpenter', 'description': 'Skilled carpenters for furniture, repairs, and custom projects.', 'icon': ''},
-            {'name': 'Electrician', 'description': 'Certified electricians for installations, repairs, and maintenance.', 'icon': ''},
-            {'name': 'AC Service', 'description': 'Professional AC maintenance, servicing, and repair solutions.', 'icon': ''},
-            {'name': 'Appliance Repair', 'description': 'Expert repair services for all your home appliances.', 'icon': ''}
-        ]
-        
-        # Create categories and store them
-        categories_dict = {}
-        for cat_data in categories_data:
-            category = ServiceCategory.objects.create(
-                name=cat_data['name'],
-                description=cat_data['description'],
-                icon=cat_data['icon']
-            )
-            categories_dict[cat_data['name']] = category
-        
-        providers_data = [
+    # Clear existing data
+    ServiceProvider.objects.all().delete()
+    ServiceCategory.objects.all().delete()
+    
+    categories_data = [
+        {'name': 'Plumber', 'description': 'Expert plumbing services for leaks, installations, and repairs.'},
+        {'name': 'Barber', 'description': 'Professional hairstyling and grooming services at your convenience.'},
+        {'name': 'Carpenter', 'description': 'Skilled carpenters for furniture, repairs, and custom projects.'},
+        {'name': 'Electrician', 'description': 'Certified electricians for installations, repairs, and maintenance.'},
+        {'name': 'AC Service', 'description': 'Professional AC maintenance, servicing, and repair solutions.'},
+        {'name': 'Appliance Repair', 'description': 'Expert repair services for all your home appliances.'}
+    ]
+    
+    # Create categories
+    for cat_data in categories_data:
+        ServiceCategory.objects.create(
+            name=cat_data['name'],
+            description=cat_data['description'],
+            icon=''
+        )
+    
+    providers_data = [
         # Plumbers (7 providers)
         {'name': 'Raj Kumar', 'phone': '+91-9876543210', 'category': 'Plumber', 'rating': 4.5, 'experience': 5, 'address': 'Sector 22, Patiala'},
         {'name': 'Suresh Singh', 'phone': '+91-9876543211', 'category': 'Plumber', 'rating': 4.2, 'experience': 3, 'address': 'Urban Estate, Patiala'},
@@ -447,59 +483,25 @@ def populate_fake_data(request):
         {'name': 'Expert Appliance Solutions', 'phone': '+91-9876543250', 'category': 'Appliance Repair', 'rating': 4.3, 'experience': 4, 'address': 'Leela Bhawan, Patiala'},
         {'name': 'Reliable Repairs Hub', 'phone': '+91-9876543251', 'category': 'Appliance Repair', 'rating': 4.9, 'experience': 10, 'address': 'Tripuri Town, Patiala'},
     ]
-        
-        # Create providers
-        created_providers = 0
-        for provider_data in providers_data:
-            try:
-                category = categories_dict.get(provider_data['category'])
-                if category:
-                    ServiceProvider.objects.create(
-                        name=provider_data['name'],
-                        phone_number=provider_data['phone'],
-                        category=category,
-                        rating=provider_data['rating'],
-                        experience_years=provider_data['experience'],
-                        total_reviews=10,
-                        address=provider_data['address'],
-                        email=''
-                    )
-                    created_providers += 1
-            except Exception as e:
-                print(f"Error creating provider: {str(e)}")
-                continue
-        
-        # Create test user
-        try:
-            User.objects.filter(username='testuser').delete()
-            test_user = User.objects.create_user(
-                username='testuser',
-                email='test@example.com',
-                password='test123',
-                first_name='Test',
-                last_name='User'
-            )
-            UserProfile.objects.create(user=test_user, phone_number='+91-9999999999')
-            user_created = True
-        except Exception as e:
-            print(f"Error creating test user: {str(e)}")
-            user_created = False
-        
-        return JsonResponse({
-            'message': 'Fake data populated successfully!',
-            'categories_created': len(categories_dict),
-            'providers_created': created_providers,
-            'total_categories': ServiceCategory.objects.count(),
-            'total_providers': ServiceProvider.objects.count(),
-            'test_user_created': user_created,
-            'test_credentials': {
-                'username': 'testuser',
-                'password': 'test123'
-            }
-        })
-        
-    except Exception as e:
-        return JsonResponse({
-            'error': 'Failed to populate data',
-            'message': str(e)
-        }, status=500)
+    
+    # Create providers
+    created = 0
+    for prov in providers_data:
+        ServiceProvider.objects.create(
+            name=prov['name'],
+            phone_number=prov['phone'],
+            category_name=prov['category'],
+            rating=prov['rating'],
+            original_rating=prov['rating'],
+            experience_years=prov['experience'],
+            total_reviews=10,
+            address=prov['address'],
+            email=''
+        )
+        created += 1
+    
+    return JsonResponse({
+        'message': 'Fake data populated successfully!',
+        'categories': ServiceCategory.objects.count(),
+        'providers': created
+    })

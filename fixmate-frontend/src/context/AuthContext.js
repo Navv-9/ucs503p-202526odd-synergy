@@ -48,7 +48,8 @@ export const AuthProvider = ({ children }) => {
   };
 
   const isAuthenticated = () => {
-    return user !== null;
+    const token = localStorage.getItem('access_token');
+    return !!token;
   };
 
   const value = {

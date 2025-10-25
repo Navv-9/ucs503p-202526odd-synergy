@@ -114,6 +114,7 @@ const MyBookings = () => {
 
   // Add this component inside MyBookings component, before the return
   const BookingCard = ({ booking, onCancel }) => (
+    
     <div className="booking-card">
       <div className="booking-header">
         <div className="booking-title">
@@ -169,7 +170,6 @@ const MyBookings = () => {
       </div>
     </div>
   );
-
   if (error) {
     return (
       <div className="error">
