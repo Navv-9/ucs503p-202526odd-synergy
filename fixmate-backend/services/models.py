@@ -47,7 +47,7 @@ class ServiceProvider(models.Model):
 
 class UserProfile(models.Model):
     id = models.AutoField(primary_key=True)
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile', to_field='username')
     phone_number = models.CharField(max_length=20)
     address = models.TextField(blank=True)
     
