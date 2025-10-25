@@ -12,7 +12,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = UserProfile
-        fields = ['user', 'phone_number', 'address']  # FIXED: Removed created_at
+        fields = ['user', 'phone_number', 'address']
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
@@ -25,21 +25,18 @@ class RegisterSerializer(serializers.ModelSerializer):
     
     def validate_username(self, value):
         """Check if username already exists"""
-        # FIXED: Use list() instead of .exists()
         if len(list(User.objects.filter(username=value))) > 0:
             raise serializers.ValidationError("This username is already taken.")
         return value
     
     def validate_email(self, value):
         """Check if email already exists"""
-        # FIXED: Use list() instead of .exists()
         if value and len(list(User.objects.filter(email=value))) > 0:
             raise serializers.ValidationError("This email is already registered.")
         return value
     
     def validate_phone_number(self, value):
         """Check if phone number already exists"""
-        # FIXED: Use list() instead of .exists()
         if len(list(UserProfile.objects.filter(phone_number=value))) > 0:
             raise serializers.ValidationError("This phone number is already registered.")
         return value
@@ -54,6 +51,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         phone_number = validated_data.pop('phone_number')
         validated_data.pop('password2')
         
+        # Create user
         user = User.objects.create_user(
             username=validated_data['username'],
             email=validated_data.get('email', ''),
@@ -62,6 +60,10 @@ class RegisterSerializer(serializers.ModelSerializer):
             password=validated_data['password']
         )
         
+        # CRITICAL: Refresh user from database to get proper ID format
+        user.refresh_from_db()
+        
+        # Create user profile
         UserProfile.objects.create(user=user, phone_number=phone_number)
         
         return user
