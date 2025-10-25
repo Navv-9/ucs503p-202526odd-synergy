@@ -24,25 +24,30 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ['username', 'email', 'password', 'password2', 'first_name', 'last_name', 'phone_number']
     
     def validate_username(self, value):
-        """Check if username already exists"""
-        # FIXED: Use list() instead of .exists()
-        if len(list(User.objects.filter(username=value))) > 0:
+        """Check if username already exists - using try/except instead of filter"""
+        try:
+            User.objects.get(username=value)
             raise serializers.ValidationError("This username is already taken.")
-        return value
+        except User.DoesNotExist:
+            return value
     
     def validate_email(self, value):
-        """Check if email already exists"""
-        # FIXED: Use list() instead of .exists()
-        if value and len(list(User.objects.filter(email=value))) > 0:
+        """Check if email already exists - using try/except instead of filter"""
+        if not value:
+            return value
+        try:
+            User.objects.get(email=value)
             raise serializers.ValidationError("This email is already registered.")
-        return value
+        except User.DoesNotExist:
+            return value
     
     def validate_phone_number(self, value):
-        """Check if phone number already exists"""
-        # FIXED: Use list() instead of .exists()
-        if len(list(UserProfile.objects.filter(phone_number=value))) > 0:
+        """Check if phone number already exists - using try/except instead of filter"""
+        try:
+            UserProfile.objects.get(phone_number=value)
             raise serializers.ValidationError("This phone number is already registered.")
-        return value
+        except UserProfile.DoesNotExist:
+            return value
     
     def validate(self, attrs):
         """Check if passwords match"""

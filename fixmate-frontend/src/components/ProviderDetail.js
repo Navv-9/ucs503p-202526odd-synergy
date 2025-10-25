@@ -59,8 +59,13 @@ const ProviderDetail = () => {
       const contacts = allReviews.filter(review => review.is_contact);
       const others = allReviews.filter(review => !review.is_contact);
 
-      setContactReviews(contacts);
-      setOtherReviews(others);
+      if (data.reviews) {
+        setContactReviews(data.reviews.from_contacts || []);
+        setOtherReviews(data.reviews.from_others || []);
+      } else {
+        setContactReviews([]);
+        setOtherReviews([]);
+      }
       setError(null);
     } catch (err) {
       setError('Failed to load provider details. Please try again.');
