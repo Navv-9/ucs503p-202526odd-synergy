@@ -3,6 +3,8 @@
   max-width: 1000px;
   margin: 0 auto;
   padding: 40px 32px;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 .header {
@@ -82,6 +84,8 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
   position: relative;
   overflow: hidden;
+  width: 100%;
+  word-wrap: break-word;
 }
 
 .provider-card::before {
@@ -149,6 +153,8 @@
   padding: 10px;
   border-radius: 8px;
   transition: all 0.2s ease;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .detail-item:hover {
@@ -183,6 +189,8 @@
   position: relative;
   z-index: 1;
   border: 1px solid rgba(14, 165, 233, 0.15);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .no-trust {
@@ -242,19 +250,21 @@
 /* Mobile responsiveness */
 @media (max-width: 768px) {
   .service-providers {
-    padding: 32px 20px;
+    padding: 24px 16px;
   }
 
   .header h1 {
-    font-size: 32px;
+    font-size: 28px;
+    word-wrap: break-word;
   }
 
   .provider-card {
-    padding: 24px;
+    padding: 20px;
   }
 
   .provider-header h3 {
-    font-size: 20px;
+    font-size: 18px;
+    word-wrap: break-word;
   }
 
   .provider-actions {
@@ -264,6 +274,16 @@
 
   .call-btn {
     justify-content: center;
+  }
+
+  .detail-item {
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+
+  .trusted-by {
+    flex-wrap: wrap;
+    font-size: 13px;
   }
 }
 

@@ -1,6 +1,12 @@
 /* src/App.css */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
+html {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+
 * {
   margin: 0;
   padding: 0;
@@ -16,17 +22,31 @@ body {
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   color: #334155;
   min-height: 100vh;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+  position: relative;
+}
+
+#root {
+  overflow-x: hidden;
+  width: 100%;
 }
 
 .App {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
 }
 
 .main-content {
   flex: 1;
   padding-top: 72px;
+  overflow-x: hidden;
+  width: 100%;
 }
 
 /* Common loading styles */
@@ -174,7 +194,7 @@ body {
 /* Responsive design */
 @media (max-width: 768px) {
   .main-content {
-    padding-top: 64px;
+    padding-top: 60px;
   }
   
   .btn, .primary-btn, .secondary-btn, .retry-btn, .back-btn {
@@ -192,6 +212,10 @@ body {
   .loading,
   .error {
     padding: 60px 16px;
+  }
+
+  .main-content {
+    padding-top: 56px;
   }
 
   .loading p,

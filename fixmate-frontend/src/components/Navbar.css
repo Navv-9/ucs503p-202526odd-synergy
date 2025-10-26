@@ -9,6 +9,8 @@
   border-bottom: 1px solid rgba(226, 232, 240, 0.8);
   z-index: 1000;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  width: 100%; /* ADD */
+  overflow-x: hidden; /* ADD */
 }
 
 .nav-container {
@@ -19,6 +21,7 @@
   align-items: center;
   justify-content: space-between;
   height: 72px;
+  width: 100%; /* ADD */
 }
 
 .nav-logo {
@@ -31,6 +34,7 @@
   text-decoration: none;
   transition: all 0.3s ease;
   letter-spacing: -0.5px;
+  flex-shrink: 0; /* ADD - prevents logo from shrinking */
 }
 
 .nav-logo:hover {
@@ -41,6 +45,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0; /* ADD - prevents links from shrinking */
 }
 
 .nav-link {
@@ -58,6 +63,7 @@
   cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
+  white-space: nowrap; /* ADD - prevents text wrapping */
 }
 
 .nav-link span {
@@ -233,48 +239,131 @@
   background: #dc2626;
 }
 
+/* Mobile Responsiveness */
 @media (max-width: 768px) {
   .nav-container {
-    height: 64px;
-    padding: 0 20px;
+    height: 60px; /* REDUCED from 64px */
+    padding: 0 16px; /* REDUCED from 20px */
   }
 
   .nav-logo {
-    font-size: 24px;
+    font-size: 22px; /* REDUCED from 24px */
   }
 
   .nav-links {
-    gap: 4px;
+    gap: 2px; /* REDUCED from 4px */
   }
 
   .nav-link {
-    padding: 8px 12px;
-    font-size: 14px;
+    padding: 8px 10px; /* REDUCED from 8px 12px */
+    font-size: 0; /* HIDE text, show only icons */
+  }
+
+  .nav-link svg {
+    width: 20px; /* ENSURE icons are visible */
+    height: 20px;
   }
 
   .nav-link span {
     display: none;
   }
 
+  .profile-btn {
+    padding: 8px 10px; /* MATCH nav-link padding */
+  }
+
   .profile-btn span {
     display: none;
   }
 
+  .profile-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+
   .dropdown-menu {
-    min-width: 220px;
+    min-width: 200px; /* REDUCED from 220px */
+    right: -8px; /* SLIGHT adjustment for better alignment */
   }
 }
 
 @media (max-width: 480px) {
+  .nav-container {
+    height: 56px; /* FURTHER REDUCED */
+    padding: 0 12px; /* FURTHER REDUCED */
+  }
+
   .nav-logo {
-    font-size: 20px;
+    font-size: 20px; /* REDUCED */
   }
 
   .nav-links {
-    gap: 2px;
+    gap: 0px; /* NO GAP on very small screens */
   }
 
   .nav-link {
-    padding: 6px 10px;
+    padding: 6px 8px; /* FURTHER REDUCED */
+  }
+
+  .nav-link svg {
+    width: 18px; /* SMALLER icons */
+    height: 18px;
+  }
+
+  .profile-btn {
+    padding: 6px 8px;
+  }
+
+  .profile-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .dropdown-menu {
+    min-width: 180px; /* FURTHER REDUCED */
+    max-width: calc(100vw - 24px); /* PREVENT overflow */
+    right: -4px;
+  }
+
+  .dropdown-header {
+    padding: 16px; /* REDUCED from 20px */
+  }
+
+  .user-name {
+    font-size: 14px; /* REDUCED from 16px */
+  }
+
+  .user-email {
+    font-size: 12px; /* REDUCED from 13px */
+  }
+
+  .dropdown-item {
+    padding: 12px 16px; /* REDUCED from 14px 20px */
+    font-size: 13px; /* REDUCED from 14px */
+  }
+}
+
+/* EXTRA SMALL devices (iPhone SE, etc.) */
+@media (max-width: 375px) {
+  .nav-logo {
+    font-size: 18px;
+  }
+
+  .nav-link {
+    padding: 4px 6px;
+  }
+
+  .nav-link svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .profile-btn {
+    padding: 4px 6px;
+  }
+
+  .profile-btn svg {
+    width: 16px;
+    height: 16px;
   }
 }
