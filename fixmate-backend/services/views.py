@@ -105,12 +105,16 @@ def service_providers(request, category_name):
         category = ServiceCategory.objects.get(name__iexact=category_name)
         providers = ServiceProvider.objects.filter(category_name=category_name)
         
+        # Get user ID for consistent seeding
+        user_id = request.user.id if request.user.is_authenticated else 0
+        
         providers_data = []
         for provider in providers:
-            trusted_friends = get_trusted_friends(provider, request)
+            # Use user ID + provider ID for consistent trusted friends per user
+            trusted_friends = get_trusted_friends(provider, request, user_id)
             
             providers_data.append({
-                'id': str(provider._id),  # Use _id directly
+                'id': str(provider._id),
                 'name': provider.name,
                 'phone': provider.phone_number,
                 'email': provider.email,
@@ -130,44 +134,72 @@ def service_providers(request, category_name):
     except ServiceCategory.DoesNotExist:
         return JsonResponse({'error': f'Service category "{category_name}" not found'}, status=404)
 
-def get_trusted_friends(provider, request):
-    """Get list of friends who trusted this provider - randomized per provider"""
+
+def get_trusted_friends(provider, request, user_id=None):
+    """Get list of friends who trusted this provider - consistent with detail page"""
     import random
     
-    random.seed(hash(provider.name))
+    # Use user ID if provided, otherwise get from request
+    if user_id is None:
+        user_id = request.user.id if request.user.is_authenticated else 0
     
-    fake_contacts = [
-        {'name': 'Harshita', 'phone': '+91-9876543220'},
-        {'name': 'Lakshit', 'phone': '+91-9876543221'},
-        {'name': 'Rohan', 'phone': '+91-9876543222'},
-        {'name': 'Priya', 'phone': '+91-9876543223'},
+    # Seed based on user ID + provider ID for consistency
+    seed_value = hash(f"{user_id}-{str(provider._id)}")
+    random.seed(seed_value)
+    
+    fake_contacts = ['Harshita', 'Lakshit', 'Rohan', 'Priya']
+    
+    # Generate contact reviews (same logic as provider_detail)
+    num_contact_reviews = random.randint(1, 3)
+    
+    review_templates = [
+        {'rating': 5, 'is_trusted': True},
+        {'rating': 4, 'is_trusted': True},
+        {'rating': 3, 'is_trusted': False},
+        {'rating': 2, 'is_trusted': False},
+        {'rating': 1, 'is_trusted': False},
+        {'rating': 4, 'is_trusted': True},
+        {'rating': 5, 'is_trusted': True},
+        {'rating': 2, 'is_trusted': False},
     ]
     
-    # Changed: Guarantee at least 1 trusted friend
-    num_trusted = random.randint(1, len(fake_contacts))  # Changed from 0
+    contact_reviews = []
+    if num_contact_reviews > 0:
+        selected_contacts = random.sample(fake_contacts, num_contact_reviews)
+        for contact_name in selected_contacts:
+            review_template = random.choice(review_templates)
+            if review_template['is_trusted']:
+                contact_reviews.append({'name': contact_name})
     
-    trusted_friends = random.sample(fake_contacts, num_trusted)
-    trusted_count = len(trusted_friends)
-    
+    # Reset random seed
     random.seed()
     
-    if trusted_count == 1:
+    # Now calculate trusted_by based on contact reviews with is_trusted=True
+    trusted_count = len(contact_reviews)
+    
+    if trusted_count == 0:
+        return {
+            'count': 0,
+            'message': 'No friends have used this service yet',
+            'names': []
+        }
+    elif trusted_count == 1:
         return {
             'count': 1,
-            'message': f'Trusted by {trusted_friends[0]["name"]}',
-            'names': [trusted_friends[0]["name"]]
+            'message': f'Trusted by {contact_reviews[0]["name"]}',
+            'names': [contact_reviews[0]["name"]]
         }
     elif trusted_count == 2:
         return {
             'count': 2,
-            'message': f'Trusted by {trusted_friends[0]["name"]} and {trusted_friends[1]["name"]}',
-            'names': [friend["name"] for friend in trusted_friends]
+            'message': f'Trusted by {contact_reviews[0]["name"]} and {contact_reviews[1]["name"]}',
+            'names': [c["name"] for c in contact_reviews]
         }
     else:
         return {
             'count': trusted_count,
-            'message': f'Trusted by {trusted_friends[0]["name"]} and {trusted_count-1} others',
-            'names': [friend["name"] for friend in trusted_friends]
+            'message': f'Trusted by {contact_reviews[0]["name"]} and {trusted_count-1} others',
+            'names': [c["name"] for c in contact_reviews]
         }
 
 def provider_detail(request, provider_id):
@@ -182,6 +214,8 @@ def provider_detail(request, provider_id):
     
     # Get actual reviews from database
     db_reviews = Review.objects.filter(provider_id=provider_id).order_by('-created_at')
+    
+    # Convert DB reviews to list
     actual_reviews = []
     for review in db_reviews:
         actual_reviews.append({
@@ -194,10 +228,12 @@ def provider_detail(request, provider_id):
             'created_at': review.created_at.strftime('%B %d, %Y')
         })
     
-    fake_contacts = ['Harshita', 'Lakshit', 'Rohan', 'Priya']
+    # FIXED: Use user ID + provider ID for consistent seed per user-provider combination
+    user_id = request.user.id if request.user.is_authenticated else 0
+    seed_value = hash(f"{user_id}-{str(provider._id)}")
+    random.seed(seed_value)
     
-    # DON'T seed here - let it be truly random
-    # random.seed(hash(str(provider._id)))  # REMOVE THIS LINE
+    fake_contacts = ['Harshita', 'Lakshit', 'Rohan', 'Priya']
     
     contact_reviews = []
     num_contact_reviews = random.randint(1, 3)  # At least 1 contact review
@@ -213,18 +249,19 @@ def provider_detail(request, provider_id):
         {'rating': 2, 'comment': 'Overpriced and slow service.', 'is_trusted': False},
     ]
     
-    selected_contacts = random.sample(fake_contacts, num_contact_reviews)
-    for contact_name in selected_contacts:
-        review_template = random.choice(review_templates)
-        contact_reviews.append({
-            'user': contact_name,
-            'is_contact': True,
-            'rating': review_template['rating'],
-            'comment': review_template['comment'],
-            'is_trusted': review_template['is_trusted'],
-            'service_date': None,
-            'created_at': 'Recent'
-        })
+    if num_contact_reviews > 0:
+        selected_contacts = random.sample(fake_contacts, num_contact_reviews)
+        for contact_name in selected_contacts:
+            review_template = random.choice(review_templates)
+            contact_reviews.append({
+                'user': contact_name,
+                'is_contact': True,
+                'rating': review_template['rating'],
+                'comment': review_template['comment'],
+                'is_trusted': review_template['is_trusted'],
+                'service_date': None,
+                'created_at': 'Recent'
+            })
     
     random_names = ['Amit K.', 'Sneha P.', 'Rajesh M.', 'Pooja S.', 'Vikram T.', 'Anita R.']
     other_reviews = []
@@ -242,8 +279,40 @@ def provider_detail(request, provider_id):
             'created_at': f'{random.randint(1, 30)} days ago'
         })
     
-    all_reviews_combined = contact_reviews + actual_reviews + other_reviews
-    trusted_friends = get_trusted_friends(provider, request)
+    # Reset random seed
+    random.seed()
+    
+    # Calculate trusted_by based on ACTUAL contact reviews with is_trusted=True
+    trusted_contacts = [review for review in contact_reviews if review['is_trusted']]
+    trusted_count = len(trusted_contacts)
+    
+    if trusted_count == 0:
+        trusted_friends = {
+            'count': 0,
+            'message': 'No friends have used this service yet',
+            'names': []
+        }
+    elif trusted_count == 1:
+        trusted_friends = {
+            'count': 1,
+            'message': f'Trusted by {trusted_contacts[0]["user"]}',
+            'names': [trusted_contacts[0]["user"]]
+        }
+    elif trusted_count == 2:
+        trusted_friends = {
+            'count': 2,
+            'message': f'Trusted by {trusted_contacts[0]["user"]} and {trusted_contacts[1]["user"]}',
+            'names': [c["user"] for c in trusted_contacts]
+        }
+    else:
+        trusted_friends = {
+            'count': trusted_count,
+            'message': f'Trusted by {trusted_contacts[0]["user"]} and {trusted_count-1} others',
+            'names': [c["user"] for c in trusted_contacts]
+        }
+    
+    # Combine all reviews
+    all_reviews_combined = actual_reviews + contact_reviews + other_reviews
     
     return JsonResponse({
         'provider': {
