@@ -15,11 +15,11 @@ class ApiService {
   // Handle API responses
   async handleResponse(response) {
     const data = await response.json();
-    
+
     if (!response.ok) {
       throw data;
     }
-    
+
     return data;
   }
 
@@ -63,12 +63,20 @@ class ApiService {
   }
 
   async getProviders(categoryName) {
-    const response = await fetch(`${API_BASE_URL}/service/${categoryName}/`);
+    const response = await fetch(`${API_BASE_URL}/service/${categoryName}/`, {
+      headers: this.getAuthHeaders()
+    });
     return this.handleResponse(response);
   }
 
   async getProviderDetail(providerId) {
-    const response = await fetch(`${API_BASE_URL}/provider/${providerId}/`);
+    const headers = this.getAuthHeaders();
+    console.log('🔑 Auth headers being sent:', headers);
+    console.log('🔑 Token exists:', !!localStorage.getItem('access_token'));
+
+    const response = await fetch(`${API_BASE_URL}/provider/${providerId}/`, {
+      headers: headers
+    });
     return this.handleResponse(response);
   }
 

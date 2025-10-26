@@ -1,6 +1,6 @@
-// src/components/ServiceProviders.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react'; // Add useContext
 import { useParams, useNavigate } from 'react-router-dom';
+import { AuthContext } from '../context/AuthContext'; // ADD THIS
 import { apiService } from '../services/api';
 import { 
   Star, 
@@ -16,6 +16,7 @@ import './ServiceProviders.css';
 const ServiceProviders = () => {
   const { categoryName } = useParams();
   const navigate = useNavigate();
+  const { isAuthenticated } = useContext(AuthContext); // ADD THIS
   const [providers, setProviders] = useState([]);
   const [categoryInfo, setCategoryInfo] = useState('');
   const [loading, setLoading] = useState(true);
@@ -23,6 +24,7 @@ const ServiceProviders = () => {
 
   useEffect(() => {
     fetchProviders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryName]);
 
   const fetchProviders = async () => {
@@ -69,18 +71,7 @@ const ServiceProviders = () => {
     return stars;
   };
 
-  const renderTrustedBy = (trustedData) => {
-    if (trustedData.count === 0) {
-      return <span className="no-trust">No reviews from friends yet</span>;
-    }
-
-    return (
-      <div className="trusted-by">
-        <Users size={16} />
-        <span>{trustedData.message}</span>
-      </div>
-    );
-  };
+  // REMOVED renderTrustedBy function - we'll inline it below
 
   if (loading) {
     return (
@@ -162,7 +153,13 @@ const ServiceProviders = () => {
                 </div>
               </div>
 
-              {provider.trusted_by && renderTrustedBy(provider.trusted_by)}
+              {/* UPDATED: Only show trust if authenticated AND has data */}
+              {isAuthenticated() && provider.trusted_by && provider.trusted_by.count > 0 && (
+                <div className="trusted-by">
+                  <Users size={16} />
+                  <span>{provider.trusted_by.message}</span>
+                </div>
+              )}
 
               <div className="provider-actions">
                 <button 

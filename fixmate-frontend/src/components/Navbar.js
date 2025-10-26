@@ -1,4 +1,3 @@
-// src/components/Navbar.js
 import React, { useContext, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
@@ -14,6 +13,14 @@ const Navbar = () => {
     logout();
     setShowDropdown(false);
     navigate('/');
+  };
+
+  const handleDropdownToggle = () => {
+    setShowDropdown(!showDropdown);
+  };
+
+  const handleDropdownClose = () => {
+    setShowDropdown(false);
   };
 
   return (
@@ -37,7 +44,7 @@ const Navbar = () => {
           <div className="profile-dropdown">
             <button
               className="nav-link profile-btn"
-              onClick={() => setShowDropdown(!showDropdown)}
+              onClick={handleDropdownToggle}
             >
               <User size={20} />
               <span>{isAuthenticated() ? user?.username : 'Account'}</span>
@@ -57,7 +64,7 @@ const Navbar = () => {
                     <Link
                       to="/my-bookings"
                       className="dropdown-item"
-                      onClick={() => setShowDropdown(false)}
+                      onClick={handleDropdownClose}
                     >
                       <Calendar size={18} />
                       <span>My Bookings</span>
@@ -75,7 +82,7 @@ const Navbar = () => {
                     <Link
                       to="/login"
                       className="dropdown-item"
-                      onClick={() => setShowDropdown(false)}
+                      onClick={handleDropdownClose}
                     >
                       <LogIn size={18} />
                       <span>Login</span>
@@ -83,7 +90,7 @@ const Navbar = () => {
                     <Link
                       to="/register"
                       className="dropdown-item"
-                      onClick={() => setShowDropdown(false)}
+                      onClick={handleDropdownClose}
                     >
                       <UserPlus size={18} />
                       <span>Register</span>
@@ -99,7 +106,7 @@ const Navbar = () => {
       {showDropdown && (
         <div
           className="dropdown-overlay"
-          onClick={() => setShowDropdown(false)}
+          onClick={handleDropdownClose}
         ></div>
       )}
     </nav>
