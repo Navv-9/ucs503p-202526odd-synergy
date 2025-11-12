@@ -10,7 +10,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from bson import ObjectId
 from bson.errors import InvalidId
 from .models import ServiceCategory, ServiceProvider, Review, UserProfile, Contact, Booking
-from .serializers import RegisterSerializer, UserSerializer, UserProfileSerializer, BookingSerializer
+from .serializers import RegisterSerializer, UserSerializer, UserProfileSerializer, BookingSerializer, ProviderRegisterSerializer, ServiceProviderSerializer, ProviderBookingSerializer
 
 # Authentication Views
 @api_view(['POST'])
@@ -22,13 +22,24 @@ def register(request):
         user = serializer.save()
         refresh = RefreshToken.for_user(user)
         
+        # Get user profile
+        try:
+            profile = UserProfile.objects.get(user=user)
+            user_type = profile.user_type
+            is_provider = profile.is_provider
+        except UserProfile.DoesNotExist:
+            user_type = 'customer'
+            is_provider = False
+        
         return Response({
             'user': {
                 'id': str(user.id),
                 'username': user.username,
                 'email': user.email,
                 'first_name': user.first_name,
-                'last_name': user.last_name
+                'last_name': user.last_name,
+                'user_type': user_type,
+                'is_provider': is_provider
             },
             'tokens': {
                 'refresh': str(refresh),
@@ -55,13 +66,24 @@ def login(request):
     if user:
         refresh = RefreshToken.for_user(user)
         
+        # Get user profile to check user type
+        try:
+            profile = UserProfile.objects.get(user=user)
+            user_type = profile.user_type
+            is_provider = profile.is_provider
+        except UserProfile.DoesNotExist:
+            user_type = 'customer'
+            is_provider = False
+        
         return Response({
             'user': {
                 'id': str(user.id),
                 'username': user.username,
                 'email': user.email,
                 'first_name': user.first_name,
-                'last_name': user.last_name
+                'last_name': user.last_name,
+                'user_type': user_type,
+                'is_provider': is_provider
             },
             'tokens': {
                 'refresh': str(refresh),
@@ -108,8 +130,11 @@ def service_providers(request, category_name):
     """Show providers for a specific service category with social proof"""
     try:
         category = ServiceCategory.objects.get(name__iexact=category_name)
+        city_filter = request.GET.get('city', None)
         providers = ServiceProvider.objects.filter(category_name=category_name)
-        
+        if city_filter:
+            providers = providers.filter(city__iexact=city_filter)
+
         providers_data = []
         for provider in providers:
             trusted_friends = get_trusted_friends(provider, request)
@@ -123,11 +148,14 @@ def service_providers(request, category_name):
                 'total_reviews': provider.total_reviews,
                 'experience_years': provider.experience_years,
                 'address': provider.address,
+                'city': provider.city,
+                'service_area': provider.service_area,
                 'trusted_by': trusted_friends
             })
         
         return Response({
             'category': category.name,
+            'city': city_filter,
             'providers_count': len(providers_data),
             'providers': providers_data
         })
@@ -231,10 +259,8 @@ def provider_detail(request, provider_id):
     except (InvalidId, ValueError):
         return Response({'error': 'Invalid provider ID'}, status=400)
     
-    # Get actual reviews from database
     db_reviews = Review.objects.filter(provider_id=provider_id).order_by('-created_at')
     
-    # Convert DB reviews to list
     actual_reviews = []
     for review in db_reviews:
         actual_reviews.append({
@@ -346,6 +372,8 @@ def provider_detail(request, provider_id):
             'email': provider.email,
             'category': provider.category_name,
             'address': provider.address,
+            'city': provider.city,  # ADD THIS LINE
+            'service_area': provider.service_area,
             'experience_years': provider.experience_years,
             'rating': provider.rating,
             'total_reviews': provider.total_reviews,
@@ -481,6 +509,249 @@ def submit_review(request, provider_id):
         }
     }, status=status.HTTP_200_OK)
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def provider_register(request):
+    """Register as a service provider"""
+    serializer = ProviderRegisterSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        user = serializer.save()
+        refresh = RefreshToken.for_user(user)
+        
+        # Get the created provider profile
+        try:
+            provider = ServiceProvider.objects.get(user=user)
+            profile = UserProfile.objects.get(user=user)
+        except (ServiceProvider.DoesNotExist, UserProfile.DoesNotExist):
+            return Response({'error': 'Failed to create provider profile'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'user_type': 'provider',
+                'is_provider': True
+            },
+            'tokens': {
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            },
+            'message': 'Provider registered successfully!'
+        }, status=status.HTTP_201_CREATED)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def provider_dashboard(request):
+    """Get provider dashboard statistics"""
+    try:
+        # Get provider profile
+        from datetime import datetime, timedelta
+        provider = ServiceProvider.objects.get(user=request.user)
+        
+        # Get all bookings for this provider
+        all_bookings = list(Booking.objects.filter(provider_id=str(provider._id)))
+        
+        # Calculate statistics
+        today = datetime.now().date()
+        
+        today_bookings = [b for b in all_bookings if b.booking_date == today]
+        week_start = today - timedelta(days=today.weekday())
+        week_bookings = [b for b in all_bookings if b.booking_date >= week_start]
+        month_bookings = [b for b in all_bookings if b.booking_date.month == today.month]
+        
+        pending_count = len([b for b in all_bookings if b.status == 'pending'])
+        
+        return Response({
+            'provider': ServiceProviderSerializer(provider).data,
+            'statistics': {
+                'total_bookings': len(all_bookings),
+                'today_bookings': len(today_bookings),
+                'week_bookings': len(week_bookings),
+                'month_bookings': len(month_bookings),
+                'pending_requests': pending_count,
+                'average_rating': provider.rating,
+                'total_reviews': provider.total_reviews,
+            }
+        })
+    except ServiceProvider.DoesNotExist:
+        return Response({'error': 'Provider profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def provider_bookings(request):
+    """Get all bookings for the provider"""
+    try:
+        provider = ServiceProvider.objects.get(user=request.user)
+        bookings = list(Booking.objects.filter(provider_id=str(provider._id)).order_by('-created_at'))
+        
+        # Group by status
+        pending = [b for b in bookings if b.status == 'pending']
+        accepted = [b for b in bookings if b.status == 'accepted']
+        completed = [b for b in bookings if b.status == 'completed']
+        cancelled = [b for b in bookings if b.status in ['cancelled', 'rejected']]
+        
+        return Response({
+            'all': ProviderBookingSerializer(bookings, many=True).data,
+            'pending': ProviderBookingSerializer(pending, many=True).data,
+            'accepted': ProviderBookingSerializer(accepted, many=True).data,
+            'completed': ProviderBookingSerializer(completed, many=True).data,
+            'cancelled': ProviderBookingSerializer(cancelled, many=True).data,
+        })
+    except ServiceProvider.DoesNotExist:
+        return Response({'error': 'Provider profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def provider_accept_booking(request, booking_id):
+    """Accept a booking request"""
+    try:
+        provider = ServiceProvider.objects.get(user=request.user)
+        booking = Booking.objects.get(_id=ObjectId(booking_id), provider_id=str(provider._id))
+        
+        if booking.status != 'pending':
+            return Response({'error': 'Booking is not pending'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        booking.status = 'accepted'
+        booking.provider_status = 'accepted'
+        booking.save()
+        
+        return Response({
+            'message': 'Booking accepted successfully!',
+            'booking': ProviderBookingSerializer(booking).data
+        })
+    except ServiceProvider.DoesNotExist:
+        return Response({'error': 'Provider profile not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Booking.DoesNotExist:
+        return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def provider_reject_booking(request, booking_id):
+    """Reject a booking request"""
+    try:
+        provider = ServiceProvider.objects.get(user=request.user)
+        booking = Booking.objects.get(_id=ObjectId(booking_id), provider_id=str(provider._id))
+        
+        if booking.status != 'pending':
+            return Response({'error': 'Booking is not pending'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        booking.status = 'rejected'
+        booking.provider_status = 'rejected'
+        booking.save()
+        
+        return Response({
+            'message': 'Booking rejected',
+            'booking': ProviderBookingSerializer(booking).data
+        })
+    except ServiceProvider.DoesNotExist:
+        return Response({'error': 'Provider profile not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Booking.DoesNotExist:
+        return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def provider_complete_booking(request, booking_id):
+    """Mark booking as completed"""
+    try:
+        from datetime import datetime
+        
+        provider = ServiceProvider.objects.get(user=request.user)
+        booking = Booking.objects.get(_id=ObjectId(booking_id), provider_id=str(provider._id))
+        
+        if booking.status not in ['pending', 'accepted']:
+            return Response({'error': 'Booking cannot be marked as completed'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        booking.status = 'completed'
+        booking.provider_status = 'completed'
+        booking.completion_notes = request.data.get('completion_notes', '')
+        booking.completed_at = datetime.now()
+        booking.save()
+        
+        return Response({
+            'message': 'Booking marked as completed!',
+            'booking': ProviderBookingSerializer(booking).data
+        })
+    except ServiceProvider.DoesNotExist:
+        return Response({'error': 'Provider profile not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Booking.DoesNotExist:
+        return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def provider_reviews(request):
+    """Get all reviews for the provider"""
+    try:
+        provider = ServiceProvider.objects.get(user=request.user)
+        reviews = list(Review.objects.filter(provider_id=str(provider._id)).order_by('-created_at'))
+        
+        # Group by rating
+        reviews_by_rating = {
+            5: len([r for r in reviews if r.rating == 5]),
+            4: len([r for r in reviews if r.rating == 4]),
+            3: len([r for r in reviews if r.rating == 3]),
+            2: len([r for r in reviews if r.rating == 2]),
+            1: len([r for r in reviews if r.rating == 1]),
+        }
+        
+        reviews_data = [{
+            'id': r.id,
+            'customer': r.user.username,
+            'rating': r.rating,
+            'comment': r.comment,
+            'is_trusted': r.is_trusted,
+            'created_at': r.created_at.strftime('%B %d, %Y'),
+        } for r in reviews]
+        
+        return Response({
+            'total_reviews': len(reviews),
+            'average_rating': provider.rating,
+            'rating_breakdown': reviews_by_rating,
+            'reviews': reviews_data
+        })
+    except ServiceProvider.DoesNotExist:
+        return Response({'error': 'Provider profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated])
+def provider_profile(request):
+    """Get or update provider profile"""
+    try:
+        provider = ServiceProvider.objects.get(user=request.user)
+        
+        if request.method == 'GET':
+            return Response(ServiceProviderSerializer(provider).data)
+        
+        elif request.method == 'PUT':
+            # Update allowed fields
+            provider.name = request.data.get('name', provider.name)
+            provider.phone_number = request.data.get('phone_number', provider.phone_number)
+            provider.email = request.data.get('email', provider.email)
+            provider.description = request.data.get('description', provider.description)
+            provider.availability = request.data.get('availability', provider.availability)
+            provider.service_area = request.data.get('service_area', provider.service_area)
+            provider.address = request.data.get('address', provider.address)
+            provider.save()
+            
+            return Response({
+                'message': 'Profile updated successfully!',
+                'provider': ServiceProviderSerializer(provider).data
+            })
+    except ServiceProvider.DoesNotExist:
+        return Response({'error': 'Provider profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
 def populate_fake_data(request):
     """Populate database with fake data for testing"""
     
@@ -507,58 +778,58 @@ def populate_fake_data(request):
     
     providers_data = [
         # Plumbers (7 providers)
-        {'name': 'Raj Kumar', 'phone': '+91-9876543210', 'category': 'Plumber', 'rating': 4.5, 'experience': 5, 'address': 'Sector 22, Patiala'},
-        {'name': 'Suresh Singh', 'phone': '+91-9876543211', 'category': 'Plumber', 'rating': 4.2, 'experience': 3, 'address': 'Urban Estate, Patiala'},
-        {'name': 'Amit Plumbing Services', 'phone': '+91-9876543216', 'category': 'Plumber', 'rating': 4.7, 'experience': 8, 'address': 'Model Town, Patiala'},
-        {'name': 'Quick Fix Plumbers', 'phone': '+91-9876543217', 'category': 'Plumber', 'rating': 4.3, 'experience': 4, 'address': 'Rajpura Road, Patiala'},
-        {'name': 'Expert Plumbing Co.', 'phone': '+91-9876543218', 'category': 'Plumber', 'rating': 4.6, 'experience': 6, 'address': 'Tripuri Town, Patiala'},
-        {'name': 'Singh Plumbing Works', 'phone': '+91-9876543219', 'category': 'Plumber', 'rating': 4.4, 'experience': 7, 'address': 'Leela Bhawan, Patiala'},
-        {'name': 'Modern Plumbers', 'phone': '+91-9876543220', 'category': 'Plumber', 'rating': 4.8, 'experience': 10, 'address': 'Mall Road, Patiala'},
+        {'name': 'Raj Kumar', 'phone': '+91-9876543210', 'category': 'Plumber', 'rating': 4.5, 'experience': 5, 'address': 'Sector 22, Patiala', 'city': 'Patiala'},
+        {'name': 'Suresh Singh', 'phone': '+91-9876543211', 'category': 'Plumber', 'rating': 4.2, 'experience': 3, 'address': 'Urban Estate, Patiala', 'city': 'Patiala'},
+        {'name': 'Amit Plumbing Services', 'phone': '+91-9876543216', 'category': 'Plumber', 'rating': 4.7, 'experience': 8, 'address': 'Model Town, Patiala', 'city': 'Patiala'},
+        {'name': 'Quick Fix Plumbers', 'phone': '+91-9876543217', 'category': 'Plumber', 'rating': 4.3, 'experience': 4, 'address': 'Rajpura Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Expert Plumbing Co.', 'phone': '+91-9876543218', 'category': 'Plumber', 'rating': 4.6, 'experience': 6, 'address': 'Tripuri Town, Patiala', 'city': 'Patiala'},
+        {'name': 'Singh Plumbing Works', 'phone': '+91-9876543219', 'category': 'Plumber', 'rating': 4.4, 'experience': 7, 'address': 'Leela Bhawan, Patiala', 'city': 'Patiala'},
+        {'name': 'Modern Plumbers', 'phone': '+91-9876543220', 'category': 'Plumber', 'rating': 4.8, 'experience': 10, 'address': 'Mall Road, Patiala', 'city': 'Patiala'},
         
         # Barbers (7 providers)
-        {'name': 'Hair Studio - Amit', 'phone': '+91-9876543212', 'category': 'Barber', 'rating': 4.8, 'experience': 7, 'address': 'Mall Road, Patiala'},
-        {'name': 'Style Cut - Rohit', 'phone': '+91-9876543213', 'category': 'Barber', 'rating': 4.3, 'experience': 4, 'address': 'Leela Bhawan, Patiala'},
-        {'name': 'Gents Salon - Rakesh', 'phone': '+91-9876543221', 'category': 'Barber', 'rating': 4.5, 'experience': 5, 'address': 'Sector 22, Patiala'},
-        {'name': 'Royal Cuts', 'phone': '+91-9876543222', 'category': 'Barber', 'rating': 4.6, 'experience': 6, 'address': 'Urban Estate, Patiala'},
-        {'name': 'Modern Hair Studio', 'phone': '+91-9876543223', 'category': 'Barber', 'rating': 4.7, 'experience': 8, 'address': 'Model Town, Patiala'},
-        {'name': 'Trim & Style Salon', 'phone': '+91-9876543224', 'category': 'Barber', 'rating': 4.4, 'experience': 3, 'address': 'Rajpura Road, Patiala'},
-        {'name': 'Elite Barber Shop', 'phone': '+91-9876543225', 'category': 'Barber', 'rating': 4.9, 'experience': 12, 'address': 'Tripuri Town, Patiala'},
+        {'name': 'Hair Studio - Amit', 'phone': '+91-9876543212', 'category': 'Barber', 'rating': 4.8, 'experience': 7, 'address': 'Mall Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Style Cut - Rohit', 'phone': '+91-9876543213', 'category': 'Barber', 'rating': 4.3, 'experience': 4, 'address': 'Leela Bhawan, Patiala', 'city': 'Patiala'},
+        {'name': 'Gents Salon - Rakesh', 'phone': '+91-9876543221', 'category': 'Barber', 'rating': 4.5, 'experience': 5, 'address': 'Sector 22, Patiala', 'city': 'Patiala'},
+        {'name': 'Royal Cuts', 'phone': '+91-9876543222', 'category': 'Barber', 'rating': 4.6, 'experience': 6, 'address': 'Urban Estate, Patiala', 'city': 'Patiala'},
+        {'name': 'Modern Hair Studio', 'phone': '+91-9876543223', 'category': 'Barber', 'rating': 4.7, 'experience': 8, 'address': 'Model Town, Patiala', 'city': 'Patiala'},
+        {'name': 'Trim & Style Salon', 'phone': '+91-9876543224', 'category': 'Barber', 'rating': 4.4, 'experience': 3, 'address': 'Rajpura Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Elite Barber Shop', 'phone': '+91-9876543225', 'category': 'Barber', 'rating': 4.9, 'experience': 12, 'address': 'Tripuri Town, Patiala', 'city': 'Patiala'},
         
         # Carpenters (7 providers)
-        {'name': 'Wood Works - Ramesh', 'phone': '+91-9876543214', 'category': 'Carpenter', 'rating': 4.6, 'experience': 8, 'address': 'Bahadurgarh Road, Patiala'},
-        {'name': 'Master Carpenter - Vijay', 'phone': '+91-9876543226', 'category': 'Carpenter', 'rating': 4.5, 'experience': 6, 'address': 'Sector 22, Patiala'},
-        {'name': 'Furniture Experts', 'phone': '+91-9876543227', 'category': 'Carpenter', 'rating': 4.7, 'experience': 9, 'address': 'Mall Road, Patiala'},
-        {'name': 'Custom Wood Works', 'phone': '+91-9876543228', 'category': 'Carpenter', 'rating': 4.4, 'experience': 5, 'address': 'Urban Estate, Patiala'},
-        {'name': 'Singh Carpentry', 'phone': '+91-9876543229', 'category': 'Carpenter', 'rating': 4.8, 'experience': 10, 'address': 'Model Town, Patiala'},
-        {'name': 'Precision Carpenters', 'phone': '+91-9876543230', 'category': 'Carpenter', 'rating': 4.3, 'experience': 4, 'address': 'Leela Bhawan, Patiala'},
-        {'name': 'Elite Furniture Makers', 'phone': '+91-9876543231', 'category': 'Carpenter', 'rating': 4.9, 'experience': 15, 'address': 'Tripuri Town, Patiala'},
+        {'name': 'Wood Works - Ramesh', 'phone': '+91-9876543214', 'category': 'Carpenter', 'rating': 4.6, 'experience': 8, 'address': 'Bahadurgarh Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Master Carpenter - Vijay', 'phone': '+91-9876543226', 'category': 'Carpenter', 'rating': 4.5, 'experience': 6, 'address': 'Sector 22, Patiala', 'city': 'Patiala'},
+        {'name': 'Furniture Experts', 'phone': '+91-9876543227', 'category': 'Carpenter', 'rating': 4.7, 'experience': 9, 'address': 'Mall Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Custom Wood Works', 'phone': '+91-9876543228', 'category': 'Carpenter', 'rating': 4.4, 'experience': 5, 'address': 'Urban Estate, Patiala', 'city': 'Patiala'},
+        {'name': 'Singh Carpentry', 'phone': '+91-9876543229', 'category': 'Carpenter', 'rating': 4.8, 'experience': 10, 'address': 'Model Town, Patiala', 'city': 'Patiala'},
+        {'name': 'Precision Carpenters', 'phone': '+91-9876543230', 'category': 'Carpenter', 'rating': 4.3, 'experience': 4, 'address': 'Leela Bhawan, Patiala', 'city': 'Patiala'},
+        {'name': 'Elite Furniture Makers', 'phone': '+91-9876543231', 'category': 'Carpenter', 'rating': 4.9, 'experience': 15, 'address': 'Tripuri Town, Patiala', 'city': 'Patiala'},
         
         # Electricians (7 providers)
-        {'name': 'Power Solutions - Ankit', 'phone': '+91-9876543232', 'category': 'Electrician', 'rating': 4.6, 'experience': 7, 'address': 'Sector 22, Patiala'},
-        {'name': 'Safe Electric Works', 'phone': '+91-9876543233', 'category': 'Electrician', 'rating': 4.4, 'experience': 5, 'address': 'Mall Road, Patiala'},
-        {'name': 'Quick Fix Electricians', 'phone': '+91-9876543234', 'category': 'Electrician', 'rating': 4.7, 'experience': 8, 'address': 'Urban Estate, Patiala'},
-        {'name': 'Expert Electrical Services', 'phone': '+91-9876543235', 'category': 'Electrician', 'rating': 4.5, 'experience': 6, 'address': 'Model Town, Patiala'},
-        {'name': 'Modern Electricians', 'phone': '+91-9876543236', 'category': 'Electrician', 'rating': 4.8, 'experience': 10, 'address': 'Rajpura Road, Patiala'},
-        {'name': 'Reliable Electric Co.', 'phone': '+91-9876543237', 'category': 'Electrician', 'rating': 4.3, 'experience': 4, 'address': 'Leela Bhawan, Patiala'},
-        {'name': 'Lightning Electric Works', 'phone': '+91-9876543238', 'category': 'Electrician', 'rating': 4.9, 'experience': 12, 'address': 'Tripuri Town, Patiala'},
+        {'name': 'Power Solutions - Ankit', 'phone': '+91-9876543232', 'category': 'Electrician', 'rating': 4.6, 'experience': 7, 'address': 'Sector 22, Patiala', 'city': 'Patiala'},
+        {'name': 'Safe Electric Works', 'phone': '+91-9876543233', 'category': 'Electrician', 'rating': 4.4, 'experience': 5, 'address': 'Mall Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Quick Fix Electricians', 'phone': '+91-9876543234', 'category': 'Electrician', 'rating': 4.7, 'experience': 8, 'address': 'Urban Estate, Patiala', 'city': 'Patiala'},
+        {'name': 'Expert Electrical Services', 'phone': '+91-9876543235', 'category': 'Electrician', 'rating': 4.5, 'experience': 6, 'address': 'Model Town, Patiala', 'city': 'Patiala'},
+        {'name': 'Modern Electricians', 'phone': '+91-9876543236', 'category': 'Electrician', 'rating': 4.8, 'experience': 10, 'address': 'Rajpura Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Reliable Electric Co.', 'phone': '+91-9876543237', 'category': 'Electrician', 'rating': 4.3, 'experience': 4, 'address': 'Leela Bhawan, Patiala', 'city': 'Patiala'},
+        {'name': 'Lightning Electric Works', 'phone': '+91-9876543238', 'category': 'Electrician', 'rating': 4.9, 'experience': 12, 'address': 'Tripuri Town, Patiala', 'city': 'Patiala'},
         
         # AC Service (7 providers)
-        {'name': 'AC Master - Vikram', 'phone': '+91-9876543215', 'category': 'AC Service', 'rating': 4.4, 'experience': 6, 'address': 'Sirhind Road, Patiala'},
-        {'name': 'Cool Care AC Services', 'phone': '+91-9876543239', 'category': 'AC Service', 'rating': 4.6, 'experience': 7, 'address': 'Sector 22, Patiala'},
-        {'name': 'Expert AC Repair', 'phone': '+91-9876543240', 'category': 'AC Service', 'rating': 4.5, 'experience': 5, 'address': 'Mall Road, Patiala'},
-        {'name': 'Quick Cool Services', 'phone': '+91-9876543241', 'category': 'AC Service', 'rating': 4.7, 'experience': 8, 'address': 'Urban Estate, Patiala'},
-        {'name': 'Arctic AC Solutions', 'phone': '+91-9876543242', 'category': 'AC Service', 'rating': 4.8, 'experience': 9, 'address': 'Model Town, Patiala'},
-        {'name': 'Chill Point AC Repair', 'phone': '+91-9876543243', 'category': 'AC Service', 'rating': 4.3, 'experience': 4, 'address': 'Rajpura Road, Patiala'},
-        {'name': 'Pro AC Technicians', 'phone': '+91-9876543244', 'category': 'AC Service', 'rating': 4.9, 'experience': 11, 'address': 'Tripuri Town, Patiala'},
+        {'name': 'AC Master - Vikram', 'phone': '+91-9876543215', 'category': 'AC Service', 'rating': 4.4, 'experience': 6, 'address': 'Sirhind Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Cool Care AC Services', 'phone': '+91-9876543239', 'category': 'AC Service', 'rating': 4.6, 'experience': 7, 'address': 'Sector 22, Patiala', 'city': 'Patiala'},
+        {'name': 'Expert AC Repair', 'phone': '+91-9876543240', 'category': 'AC Service', 'rating': 4.5, 'experience': 5, 'address': 'Mall Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Quick Cool Services', 'phone': '+91-9876543241', 'category': 'AC Service', 'rating': 4.7, 'experience': 8, 'address': 'Urban Estate, Patiala', 'city': 'Patiala'},
+        {'name': 'Arctic AC Solutions', 'phone': '+91-9876543242', 'category': 'AC Service', 'rating': 4.8, 'experience': 9, 'address': 'Model Town, Patiala', 'city': 'Patiala'},
+        {'name': 'Chill Point AC Repair', 'phone': '+91-9876543243', 'category': 'AC Service', 'rating': 4.3, 'experience': 4, 'address': 'Rajpura Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Pro AC Technicians', 'phone': '+91-9876543244', 'category': 'AC Service', 'rating': 4.9, 'experience': 11, 'address': 'Tripuri Town, Patiala', 'city': 'Patiala'},
         
         # Appliance Repair (7 providers)
-        {'name': 'Home Appliance Experts', 'phone': '+91-9876543245', 'category': 'Appliance Repair', 'rating': 4.5, 'experience': 6, 'address': 'Sector 22, Patiala'},
-        {'name': 'Fix All Appliances', 'phone': '+91-9876543246', 'category': 'Appliance Repair', 'rating': 4.4, 'experience': 5, 'address': 'Mall Road, Patiala'},
-        {'name': 'Smart Repair Services', 'phone': '+91-9876543247', 'category': 'Appliance Repair', 'rating': 4.7, 'experience': 8, 'address': 'Urban Estate, Patiala'},
-        {'name': 'Quick Fix Appliances', 'phone': '+91-9876543248', 'category': 'Appliance Repair', 'rating': 4.6, 'experience': 7, 'address': 'Model Town, Patiala'},
-        {'name': 'Modern Appliance Care', 'phone': '+91-9876543249', 'category': 'Appliance Repair', 'rating': 4.8, 'experience': 9, 'address': 'Rajpura Road, Patiala'},
-        {'name': 'Expert Appliance Solutions', 'phone': '+91-9876543250', 'category': 'Appliance Repair', 'rating': 4.3, 'experience': 4, 'address': 'Leela Bhawan, Patiala'},
-        {'name': 'Reliable Repairs Hub', 'phone': '+91-9876543251', 'category': 'Appliance Repair', 'rating': 4.9, 'experience': 10, 'address': 'Tripuri Town, Patiala'},
+        {'name': 'Home Appliance Experts', 'phone': '+91-9876543245', 'category': 'Appliance Repair', 'rating': 4.5, 'experience': 6, 'address': 'Sector 22, Patiala', 'city': 'Patiala'},
+        {'name': 'Fix All Appliances', 'phone': '+91-9876543246', 'category': 'Appliance Repair', 'rating': 4.4, 'experience': 5, 'address': 'Mall Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Smart Repair Services', 'phone': '+91-9876543247', 'category': 'Appliance Repair', 'rating': 4.7, 'experience': 8, 'address': 'Urban Estate, Patiala', 'city': 'Patiala'},
+        {'name': 'Quick Fix Appliances', 'phone': '+91-9876543248', 'category': 'Appliance Repair', 'rating': 4.6, 'experience': 7, 'address': 'Model Town, Patiala', 'city': 'Patiala'},
+        {'name': 'Modern Appliance Care', 'phone': '+91-9876543249', 'category': 'Appliance Repair', 'rating': 4.8, 'experience': 9, 'address': 'Rajpura Road, Patiala', 'city': 'Patiala'},
+        {'name': 'Expert Appliance Solutions', 'phone': '+91-9876543250', 'category': 'Appliance Repair', 'rating': 4.3, 'experience': 4, 'address': 'Leela Bhawan, Patiala', 'city': 'Patiala'},
+        {'name': 'Reliable Repairs Hub', 'phone': '+91-9876543251', 'category': 'Appliance Repair', 'rating': 4.9, 'experience': 10, 'address': 'Tripuri Town, Patiala', 'city': 'Patiala'},
     ]
     
     # Create providers
@@ -573,6 +844,7 @@ def populate_fake_data(request):
             experience_years=prov['experience'],
             total_reviews=10,
             address=prov['address'],
+            city=prov.get('city', 'Patiala'),
             email=''
         )
         created += 1

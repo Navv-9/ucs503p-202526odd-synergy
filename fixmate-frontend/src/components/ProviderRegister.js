@@ -1,4 +1,4 @@
-// src/components/Register.js
+// src/components/ProviderRegister.js
 import React, { useState, useContext } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
@@ -6,11 +6,11 @@ import { apiService } from '../services/api';
 import { UserPlus, AlertCircle, Briefcase, User } from 'lucide-react';
 import './Login.css';
 
-const Register = () => {
+const ProviderRegister = () => {
   const navigate = useNavigate();
   const { login } = useContext(AuthContext);
-  const [registrationType, setRegistrationType] = useState('customer');
-  
+  const [registrationType, setRegistrationType] = useState('both'); // 'customer' or 'both'
+
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -19,10 +19,9 @@ const Register = () => {
     first_name: '',
     last_name: '',
     phone_number: '',
-    // Provider fields
     category_name: '',
     experience_years: '',
-    city: '',
+    city: '', // ✅ ADDED - This was missing!
     service_area: '',
     description: '',
     availability: 'Mon-Sat, 9AM-6PM'
@@ -106,13 +105,13 @@ const Register = () => {
 
     try {
       let response;
-      
+
       if (registrationType === 'customer') {
         // Register as customer only
         response = await apiService.register(formData);
         login(response.user, response.tokens);
         localStorage.setItem('user_type', 'customer');
-        
+
         const redirectPath = localStorage.getItem('redirectAfterLogin');
         if (redirectPath) {
           localStorage.removeItem('redirectAfterLogin');
@@ -122,14 +121,14 @@ const Register = () => {
         }
       } else if (registrationType === 'both') {
         // Register as both customer and provider
-        console.log('📤 Sending provider registration data:', formData);
+        console.log('📤 Sending provider registration data:', formData); // Debug log
         response = await apiService.providerRegister(formData);
         login(response.user, response.tokens);
         localStorage.setItem('user_type', 'both');
         navigate('/provider/dashboard');
       }
     } catch (err) {
-      console.error('❌ Registration error:', err);
+      console.error('❌ Registration error:', err); // Debug log
       
       if (err.username) {
         setError(err.username[0]);
@@ -206,7 +205,7 @@ const Register = () => {
           {/* Account Information */}
           <div className="form-section">
             <h3 className="section-title">Account Information</h3>
-            
+
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="first_name">First Name *</label>
@@ -310,7 +309,7 @@ const Register = () => {
           {registrationType === 'both' && (
             <div className="form-section">
               <h3 className="section-title">Service Provider Information</h3>
-              
+
               <div className="form-row">
                 <div className="form-group">
                   <label htmlFor="category_name">Service Category *</label>
@@ -345,6 +344,7 @@ const Register = () => {
                 </div>
               </div>
 
+              {/* ✅ ADDED: City field */}
               <div className="form-row">
                 <div className="form-group">
                   <label htmlFor="city">City *</label>
@@ -405,9 +405,9 @@ const Register = () => {
           )}
 
           <button type="submit" className="submit-btn" disabled={loading}>
-            {loading ? 'Creating Account...' : 
+            {loading ? 'Creating Account...' :
               registrationType === 'customer' ? 'Register as Customer' :
-              'Register as Customer & Provider'}
+                'Register as Customer & Provider'}
           </button>
         </form>
 
@@ -424,4 +424,4 @@ const Register = () => {
   );
 };
 
-export default Register;
+export default ProviderRegister;

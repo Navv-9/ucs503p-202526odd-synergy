@@ -1,0 +1,450 @@
+/* CitySelector.css - Fixed & Responsive */
+
+.city-selector-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 2px solid #6366f1;
+  border-radius: 12px;
+  color: #6366f1;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+  white-space: nowrap;
+}
+
+.city-selector-btn:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: #4f46e5;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.city-selector-btn svg {
+  color: #6366f1;
+  flex-shrink: 0;
+}
+
+/* Modal Overlay - FIXED Z-INDEX */
+.city-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000; /* Higher than navbar */
+  padding: 20px;
+  animation: fadeIn 0.2s ease;
+  overflow-y: auto; /* Allow scrolling if needed */
+  isolation: isolate; /* Create new stacking context */
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Modal Container - IMPROVED CONSTRAINTS */
+.city-modal {
+  background: white;
+  border-radius: 20px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh; /* Increased from 80vh */
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease;
+  margin: auto; /* Center in overlay */
+  position: relative; /* Ensure proper stacking */
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Modal Header */
+.city-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 28px;
+  border-bottom: 1px solid #e5e7eb;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 20px 20px 0 0;
+  flex-shrink: 0; /* Prevent header from shrinking */
+}
+
+.city-modal-header h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 10px;
+  padding: 8px;
+  cursor: pointer;
+  color: white;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: rotate(90deg);
+}
+
+/* Modal Body */
+.city-modal-body {
+  padding: 24px 28px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0; /* Important for flex scrolling */
+}
+
+/* Detect City Button */
+.detect-city-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.detect-city-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.detect-city-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.detect-city-btn svg {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+/* Search Input */
+.city-search {
+  margin-bottom: 20px;
+}
+
+.city-search input {
+  width: 100%;
+  padding: 14px 18px;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  font-size: 16px;
+  transition: all 0.3s ease;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.city-search input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+}
+
+.city-search input::placeholder {
+  color: #9ca3af;
+}
+
+/* City List */
+.city-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+/* Custom Scrollbar */
+.city-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.city-list::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 10px;
+}
+
+.city-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+.city-list::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* City Item */
+.city-item {
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  position: relative;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.city-item:hover {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.05);
+  transform: translateX(4px);
+}
+
+.city-item.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  color: white;
+  font-weight: 600;
+}
+
+.city-item.active:hover {
+  transform: scale(1.02);
+}
+
+.checkmark {
+  font-size: 18px;
+  animation: checkmarkPop 0.3s ease;
+}
+
+@keyframes checkmarkPop {
+  0% {
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Tablet Responsive */
+@media (max-width: 768px) {
+  .city-selector-btn {
+    padding: 10px 14px;
+    font-size: 14px;
+    gap: 6px;
+  }
+
+  .city-selector-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .city-modal {
+    max-width: 90%;
+    max-height: 85vh;
+    border-radius: 18px;
+  }
+
+  .city-modal-header {
+    padding: 20px 24px;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .city-modal-header h2 {
+    font-size: 22px;
+  }
+
+  .city-modal-body {
+    padding: 20px 24px;
+  }
+
+  .city-list {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+  }
+}
+
+/* Mobile Responsive */
+@media (max-width: 480px) {
+  .city-selector-btn {
+    padding: 8px 12px;
+    font-size: 13px;
+    gap: 5px;
+    border-radius: 10px;
+  }
+
+  .city-selector-btn span {
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .city-modal-overlay {
+    padding: 16px;
+  }
+
+  .city-modal {
+    max-width: 95%;
+    max-height: 90vh;
+    border-radius: 16px;
+  }
+
+  .city-modal-header {
+    padding: 18px 20px;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .city-modal-header h2 {
+    font-size: 20px;
+  }
+
+  .close-btn {
+    padding: 6px;
+  }
+
+  .close-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .city-modal-body {
+    padding: 18px 20px;
+  }
+
+  .detect-city-btn {
+    padding: 12px 18px;
+    font-size: 15px;
+  }
+
+  .city-search input {
+    padding: 12px 16px;
+    font-size: 15px;
+  }
+
+  .city-list {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+    max-height: 350px;
+  }
+
+  .city-item {
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+}
+
+/* Extra small screens */
+@media (max-width: 375px) {
+  .city-selector-btn {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .city-selector-btn span {
+    max-width: 60px;
+  }
+
+  .city-modal {
+    max-width: 100%;
+    border-radius: 14px;
+  }
+
+  .city-modal-header {
+    padding: 16px 18px;
+  }
+
+  .city-modal-header h2 {
+    font-size: 18px;
+  }
+
+  .city-modal-body {
+    padding: 16px 18px;
+  }
+
+  .city-list {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px;
+  }
+
+  .city-item {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+}
+
+/* Loading state for detect button */
+.detect-city-btn:disabled svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Empty state */
+.city-list:empty::after {
+  content: 'No cities found';
+  display: block;
+  text-align: center;
+  color: #9ca3af;
+  padding: 40px;
+  font-size: 16px;
+  grid-column: 1 / -1;
+}

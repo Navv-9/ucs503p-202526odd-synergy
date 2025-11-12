@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useContext } from 'react'; // Add useContext
+import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext'; // ADD THIS
+import { AuthContext } from '../context/AuthContext';
 import { apiService } from '../services/api';
+import { LocationContext } from '../context/LocationContext';
 import { 
   Star, 
   Phone, 
@@ -9,14 +10,16 @@ import {
   Users, 
   ArrowLeft,
   RefreshCw,
-  AlertCircle 
+  AlertCircle,
+  Navigation
 } from 'lucide-react';
 import './ServiceProviders.css';
 
 const ServiceProviders = () => {
   const { categoryName } = useParams();
+  const { selectedCity } = useContext(LocationContext);
   const navigate = useNavigate();
-  const { isAuthenticated } = useContext(AuthContext); // ADD THIS
+  const { isAuthenticated } = useContext(AuthContext);
   const [providers, setProviders] = useState([]);
   const [categoryInfo, setCategoryInfo] = useState('');
   const [loading, setLoading] = useState(true);
@@ -25,12 +28,12 @@ const ServiceProviders = () => {
   useEffect(() => {
     fetchProviders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryName]);
+  }, [categoryName, selectedCity]);
 
   const fetchProviders = async () => {
     try {
       setLoading(true);
-      const data = await apiService.getProviders(categoryName);
+      const data = await apiService.getProviders(categoryName, selectedCity);
       setProviders(data.providers || []);
       setCategoryInfo(data.category || categoryName);
       setError(null);
@@ -71,13 +74,11 @@ const ServiceProviders = () => {
     return stars;
   };
 
-  // REMOVED renderTrustedBy function - we'll inline it below
-
   if (loading) {
     return (
       <div className="loading">
         <RefreshCw className="loading-icon" />
-        <p>Loading {categoryName} providers...</p>
+        <p>Loading {categoryName} providers in {selectedCity}...</p>
       </div>
     );
   }
@@ -104,13 +105,27 @@ const ServiceProviders = () => {
           <ArrowLeft size={20} />
           Back
         </button>
-        <h1>{categoryInfo} Services</h1>
-        <p>{providers.length} providers available</p>
+        
+        <div className="header-content">
+          <h1>{categoryInfo} Services</h1>
+          
+          {/* Location Badge */}
+          <div className="location-badge">
+            <Navigation size={16} />
+            <span>Showing results in <strong>{selectedCity}</strong></span>
+          </div>
+          
+          <p className="providers-count">
+            {providers.length} provider{providers.length !== 1 ? 's' : ''} available
+          </p>
+        </div>
       </div>
 
       {providers.length === 0 ? (
         <div className="no-providers">
-          <p>No {categoryName.toLowerCase()} providers found in your area.</p>
+          <MapPin size={48} className="no-providers-icon" />
+          <h3>No providers found in {selectedCity}</h3>
+          <p>Try selecting a different city or check back later.</p>
           <button onClick={handleBack} className="back-btn">
             Browse Other Services
           </button>
@@ -153,7 +168,6 @@ const ServiceProviders = () => {
                 </div>
               </div>
 
-              {/* UPDATED: Only show trust if authenticated AND has data */}
               {isAuthenticated() && provider.trusted_by && provider.trusted_by.count > 0 && (
                 <div className="trusted-by">
                   <Users size={16} />

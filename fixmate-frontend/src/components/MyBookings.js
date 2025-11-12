@@ -1,5 +1,5 @@
 // src/components/MyBookings.js
-// import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { apiService } from '../services/api';
@@ -15,7 +15,6 @@ import {
   AlertCircle
 } from 'lucide-react';
 import './MyBookings.css';
-import React, { useState, useEffect, useContext, useCallback } from 'react';
 
 const MyBookings = () => {
   const navigate = useNavigate();
@@ -23,52 +22,75 @@ const MyBookings = () => {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   const fetchBookings = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await apiService.getUserBookings();
-      setBookings(data.bookings || []);
       setError(null);
+
+      console.log('🔍 Fetching bookings...');
+      const data = await apiService.getUserBookings();
+      console.log('📦 Bookings received:', data);
+
+      setBookings(data.bookings || []);
     } catch (err) {
-      if (err.response?.status === 401) {
+      console.error('❌ Error fetching bookings:', err);
+
+      if (err.message && err.message.includes('401')) {
+        console.log('🔐 Unauthorized - redirecting to login');
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.setItem('redirectAfterLogin', '/my-bookings');
         navigate('/login');
       } else {
+        setError('Failed to load bookings. Please try again.');
         setBookings([]);
-        setError(null);
       }
     } finally {
       setLoading(false);
     }
   }, [navigate]);
-  useEffect(() => {
-  if (!isAuthenticated()) {
-    localStorage.setItem('redirectAfterLogin', '/my-bookings');
-    navigate('/login');
-    return;
-  }
-  fetchBookings();
-}, [isAuthenticated, navigate, fetchBookings]);
 
+  useEffect(() => {
+    console.log('🔐 Checking authentication...');
+    console.log('Token exists:', !!localStorage.getItem('access_token'));
+
+    if (!isAuthenticated()) {
+      console.log('❌ Not authenticated - redirecting to login');
+      localStorage.setItem('redirectAfterLogin', '/my-bookings');
+      navigate('/login');
+      return;
+    }
+
+    fetchBookings();
+  }, [isAuthenticated, navigate, fetchBookings]);
 
   const categorizeBookings = () => {
     const now = new Date();
+    now.setHours(0, 0, 0, 0);
 
     const active = bookings.filter(b => {
       const bookingDate = new Date(b.booking_date);
-      return (b.status === 'pending' || b.status === 'confirmed') && bookingDate >= now;
+      bookingDate.setHours(0, 0, 0, 0);
+
+      // Show pending/accepted bookings that are future OR accepted bookings from the past (not yet completed)
+      if (b.status === 'pending' || b.status === 'confirmed') {
+        return bookingDate >= now;
+      }
+      if (b.status === 'accepted') {
+        return true; // Always show accepted bookings in active until marked complete
+      }
+      return false;
     }).sort((a, b) => new Date(a.booking_date) - new Date(b.booking_date));
 
     const completed = bookings.filter(b => b.status === 'completed')
       .sort((a, b) => new Date(b.booking_date) - new Date(a.booking_date));
 
-    const cancelled = bookings.filter(b => b.status === 'cancelled')
+    const cancelled = bookings.filter(b => b.status === 'cancelled' || b.status === 'rejected')
       .sort((a, b) => new Date(b.booking_date) - new Date(a.booking_date));
 
     return { active, completed, cancelled };
   };
-
-  const { active, completed, cancelled } = categorizeBookings();
 
   const handleCancelBooking = async (bookingId) => {
     if (!window.confirm('Are you sure you want to cancel this booking?')) {
@@ -80,6 +102,7 @@ const MyBookings = () => {
       fetchBookings(); // Refresh bookings
       alert('Booking cancelled successfully!');
     } catch (err) {
+      console.error('Error cancelling booking:', err);
       alert('Failed to cancel booking. Please try again.');
     }
   };
@@ -87,9 +110,11 @@ const MyBookings = () => {
   const getStatusBadge = (status) => {
     const statusConfig = {
       pending: { color: 'status-pending', icon: Clock, text: 'Pending' },
+      accepted: { color: 'status-confirmed', icon: CheckCircle, text: 'Accepted' },
       confirmed: { color: 'status-confirmed', icon: CheckCircle, text: 'Confirmed' },
       completed: { color: 'status-completed', icon: CheckCircle, text: 'Completed' },
-      cancelled: { color: 'status-cancelled', icon: XCircle, text: 'Cancelled' }
+      cancelled: { color: 'status-cancelled', icon: XCircle, text: 'Cancelled' },
+      rejected: { color: 'status-cancelled', icon: XCircle, text: 'Rejected' }
     };
 
     const config = statusConfig[status] || statusConfig.pending;
@@ -103,18 +128,8 @@ const MyBookings = () => {
     );
   };
 
-  if (loading) {
-    return (
-      <div className="loading">
-        <RefreshCw className="loading-icon" />
-        <p>Loading your bookings...</p>
-      </div>
-    );
-  }
-
-  // Add this component inside MyBookings component, before the return
+  // BookingCard Component - MOVED OUTSIDE
   const BookingCard = ({ booking, onCancel }) => (
-    
     <div className="booking-card">
       <div className="booking-header">
         <div className="booking-title">
@@ -158,7 +173,7 @@ const MyBookings = () => {
           Booked on: {new Date(booking.created_at).toLocaleDateString()}
         </span>
 
-        {booking.status !== 'cancelled' && booking.status !== 'completed' && (
+        {booking.status !== 'cancelled' && booking.status !== 'completed' && booking.status !== 'rejected' && (
           <button
             className="cancel-booking-btn"
             onClick={() => onCancel(booking.id)}
@@ -170,6 +185,16 @@ const MyBookings = () => {
       </div>
     </div>
   );
+
+  if (loading) {
+    return (
+      <div className="loading">
+        <RefreshCw className="loading-icon" />
+        <p>Loading your bookings...</p>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="error">
@@ -181,6 +206,8 @@ const MyBookings = () => {
       </div>
     );
   }
+
+  const { active, completed, cancelled } = categorizeBookings();
 
   return (
     <div className="my-bookings">

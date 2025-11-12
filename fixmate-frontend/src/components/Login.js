@@ -33,13 +33,17 @@ const Login = () => {
       const response = await apiService.login(formData);
       login(response.user, response.tokens);
 
-      // Check if there's a saved redirect location
-      const redirectPath = localStorage.getItem('redirectAfterLogin');
-      if (redirectPath) {
-        localStorage.removeItem('redirectAfterLogin');
-        navigate(redirectPath);
+      // Navigate based on user type from response
+      if (response.user.user_type === 'provider' || response.user.is_provider) {
+        navigate('/provider/dashboard');
       } else {
-        navigate('/');
+        const redirectPath = localStorage.getItem('redirectAfterLogin');
+        if (redirectPath) {
+          localStorage.removeItem('redirectAfterLogin');
+          navigate(redirectPath);
+        } else {
+          navigate('/');
+        }
       }
     } catch (err) {
       setError(err.error || 'Login failed. Please check your credentials.');

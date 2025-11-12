@@ -23,4 +23,13 @@ urlpatterns = [
     path('populate-data/', views.populate_fake_data, name='populate_data'),
     # Review routes
     path('api/provider/<str:provider_id>/review/', views.submit_review, name='submit_review'),
+    # Provider APIs
+    path('api/provider/register/', views.provider_register, name='provider_register'),
+    path('api/provider/dashboard/', views.provider_dashboard, name='provider_dashboard'),
+    path('api/provider/bookings/', views.provider_bookings, name='provider_bookings'),
+    path('api/provider/bookings/<str:booking_id>/accept/', views.provider_accept_booking, name='provider_accept_booking'),
+    path('api/provider/bookings/<str:booking_id>/reject/', views.provider_reject_booking, name='provider_reject_booking'),
+    path('api/provider/bookings/<str:booking_id>/complete/', views.provider_complete_booking, name='provider_complete_booking'),
+    path('api/provider/reviews/', views.provider_reviews, name='provider_reviews'),
+    path('api/provider/profile/', views.provider_profile, name='provider_profile'),
 ]

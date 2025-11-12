@@ -9,6 +9,7 @@
   border-bottom: 1px solid rgba(226, 232, 240, 0.8);
   z-index: 1000;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  overflow: visible; /* CRITICAL: Allow modal to escape navbar */
 }
 
 .nav-container {
@@ -19,6 +20,7 @@
   align-items: center;
   justify-content: space-between;
   height: 72px;
+  gap: 24px; /* Added gap for better spacing */
 }
 
 .nav-logo {
@@ -31,16 +33,25 @@
   text-decoration: none;
   transition: all 0.3s ease;
   letter-spacing: -0.5px;
+  flex-shrink: 0; /* Prevent logo from shrinking */
 }
 
 .nav-logo:hover {
   transform: scale(1.05);
 }
 
+/* City Selector Container - NEW */
+.nav-city-selector {
+  flex-shrink: 0; /* Prevent shrinking */
+  margin: 0 auto 0 0; /* Push to left side after logo */
+}
+
 .nav-links {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0; /* Prevent nav links from shrinking */
+  margin-left: auto; /* Push to the right */
 }
 
 .nav-link {
@@ -226,10 +237,21 @@
 }
 
 /* Responsive Design */
+@media (max-width: 968px) {
+  .nav-container {
+    gap: 16px;
+  }
+  
+  .nav-city-selector {
+    margin: 0;
+  }
+}
+
 @media (max-width: 768px) {
   .nav-container {
     padding: 0 20px;
     height: 64px;
+    gap: 12px;
   }
 
   .nav-logo {
@@ -277,6 +299,7 @@
   .nav-container {
     padding: 0 16px;
     height: 60px;
+    gap: 8px;
   }
 
   .nav-logo {

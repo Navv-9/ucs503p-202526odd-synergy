@@ -128,3 +128,120 @@ class BookingSerializer(serializers.ModelSerializer):
         if hasattr(instance, '_id') and instance._id:
             representation['id'] = str(instance._id)
         return representation
+    
+# Provider Registration Serializer
+class ProviderRegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True)
+    password2 = serializers.CharField(write_only=True, required=True)
+    phone_number = serializers.CharField(required=True)
+    
+    # Provider-specific fields
+    category_name = serializers.CharField(required=True)
+    experience_years = serializers.IntegerField(required=True)
+    service_area = serializers.CharField(required=True)
+    city = serializers.CharField(required=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    availability = serializers.CharField(required=False, allow_blank=True)
+    
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'password', 'password2', 'first_name', 'last_name', 
+                  'phone_number', 'category_name', 'experience_years', 'service_area','city', 
+                  'description', 'availability']
+    
+    def validate(self, attrs):
+        if attrs['password'] != attrs['password2']:
+            raise serializers.ValidationError({"password": "Passwords don't match."})
+        return attrs
+    
+    def create(self, validated_data):
+        # Extract provider fields
+        phone_number = validated_data.pop('phone_number')
+        category_name = validated_data.pop('category_name')
+        experience_years = validated_data.pop('experience_years')
+        service_area = validated_data.pop('service_area')
+        city = validated_data.pop('city')
+        description = validated_data.pop('description', '')
+        availability = validated_data.pop('availability', 'Mon-Sat, 9AM-6PM')
+        validated_data.pop('password2')
+        
+        # Create user
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            email=validated_data.get('email', ''),
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
+            password=validated_data['password']
+        )
+        
+        # Create user profile
+        UserProfile.objects.create(
+            user=user,
+            phone_number=phone_number,
+            user_type='provider',
+            is_provider=True
+        )
+        
+        # Create service provider profile
+        ServiceProvider.objects.create(
+            user=user,
+            name=f"{user.first_name} {user.last_name}" if user.first_name else user.username,
+            phone_number=phone_number,
+            email=user.email,
+            category_name=category_name,
+            experience_years=experience_years,
+            address=service_area,
+            service_area=service_area,
+            city=city,
+            description=description,
+            availability=availability,
+            rating=0.0,  # Default rating
+            original_rating=0.0,
+            total_reviews=0
+        )
+        
+        return user
+
+
+# Provider Profile Serializer
+class ServiceProviderSerializer(serializers.ModelSerializer):
+    id = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ServiceProvider
+        fields = ['id', 'name', 'phone_number', 'email', 'category_name', 
+                  'experience_years', 'address', 'service_area', 'city', 'description', 
+                  'availability', 'rating', 'total_reviews', 'is_verified', 
+                  'is_active', 'joined_date']
+    
+    def get_id(self, obj):
+        return str(obj._id) if obj._id else None
+
+
+# Provider Booking Serializer
+class ProviderBookingSerializer(serializers.ModelSerializer):
+    id = serializers.SerializerMethodField()
+    customer_name = serializers.CharField(source='user.username', read_only=True)
+    customer_phone = serializers.SerializerMethodField()
+    customer_address = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Booking
+        fields = ['id', 'customer_name', 'customer_phone', 'customer_address',
+                  'booking_date', 'booking_time', 'status', 'provider_status',
+                  'notes', 'completion_notes', 'created_at', 'completed_at']
+    
+    def get_id(self, obj):
+        return str(obj._id) if obj._id else None
+    
+    def get_customer_phone(self, obj):
+        try:
+            return obj.user.profile.phone_number
+        except:
+            return ""
+    
+    def get_customer_address(self, obj):
+        try:
+            return obj.user.profile.address
+        except:
+            return ""
