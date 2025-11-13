@@ -51,7 +51,53 @@ class UserProfileSerializer(serializers.ModelSerializer):
             return ""
 
 
+def convert_pk_to_user_id(user_pk):
+    """
+    Centralized function to convert Django user.pk to integer user_id
+    This ensures consistency across all registration and authentication
+    """
+    from bson import ObjectId
+    
+    logger.info(f"Converting pk: {user_pk} (type: {type(user_pk).__name__})")
+    
+    # If already an integer, return it
+    if isinstance(user_pk, int):
+        logger.info(f"✅ Already integer: {user_pk}")
+        return user_pk
+    
+    # If it's an ObjectId
+    if isinstance(user_pk, ObjectId):
+        user_id = int(str(user_pk)[-9:], 16)
+        logger.info(f"✅ Converted ObjectId {user_pk} to {user_id}")
+        return user_id
+    
+    # If it's a string
+    if isinstance(user_pk, str):
+        # Try to parse as ObjectId
+        try:
+            oid = ObjectId(user_pk)
+            user_id = int(str(oid)[-9:], 16)
+            logger.info(f"✅ Converted string ObjectId {user_pk} to {user_id}")
+            return user_id
+        except:
+            pass
+        
+        # Try direct integer conversion
+        try:
+            user_id = int(user_pk)
+            logger.info(f"✅ Converted string to int: {user_id}")
+            return user_id
+        except:
+            pass
+    
+    # Last resort: use hash
+    user_id = abs(hash(str(user_pk))) % (10 ** 10)
+    logger.warning(f"⚠️ Using hash for {user_pk}: {user_id}")
+    return user_id
+
+
 class RegisterSerializer(serializers.ModelSerializer):
+    """Customer registration serializer"""
     password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
     password2 = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'}, label='Confirm Password')
     phone_number = serializers.CharField(required=True, max_length=15)
@@ -61,13 +107,11 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ['username', 'email', 'password', 'password2', 'first_name', 'last_name', 'phone_number']
     
     def validate_username(self, value):
-        """Check if username already exists"""
         if User.objects.filter(username=value).exists():
             raise serializers.ValidationError("This username is already taken.")
         return value
     
     def validate_email(self, value):
-        """Check if email already exists"""
         if not value:
             return value
         if User.objects.filter(email=value).exists():
@@ -75,13 +119,11 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
     
     def validate_phone_number(self, value):
-        """Check if phone number already exists"""
         if UserProfile.objects.filter(phone_number=value).exists():
             raise serializers.ValidationError("This phone number is already registered.")
         return value
     
     def validate(self, attrs):
-        """Check if passwords match"""
         if attrs['password'] != attrs['password2']:
             raise serializers.ValidationError({"password": "Password fields didn't match."})
         return attrs
@@ -89,6 +131,9 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         phone_number = validated_data.pop('phone_number')
         validated_data.pop('password2')
+        
+        user = None
+        profile = None
         
         try:
             # Create user
@@ -100,80 +145,47 @@ class RegisterSerializer(serializers.ModelSerializer):
                 password=validated_data['password']
             )
             
-            logger.info(f"User created: {user.username}, initial pk: {user.pk}, type: {type(user.pk)}")
+            logger.info(f"✅ User created: {user.username}, pk: {user.pk}")
             
-            # Get user_id immediately after creation
-            user_pk = user.pk
+            # Convert user.pk to integer user_id
+            user_id = convert_pk_to_user_id(user.pk)
+            logger.info(f"✅ Converted to user_id: {user_id}")
             
-            # Check if pk is None
-            if user_pk is None:
-                logger.error("User pk is None after creation!")
-                # Try to query the user back
-                try:
-                    user = User.objects.get(username=user.username)
-                    user_pk = user.pk
-                    logger.info(f"After querying back: pk={user_pk}, type={type(user_pk)}")
-                except User.DoesNotExist:
-                    logger.error("Cannot find user after creation!")
-                    raise Exception("User creation failed - pk is None")
-            
-            # Convert to integer based on type
-            from bson import ObjectId
-            
-            if isinstance(user_pk, ObjectId):
-                # Convert ObjectId to integer using last 9 hex characters
-                user_id_for_storage = int(str(user_pk)[-9:], 16)
-                logger.info(f"Converted ObjectId {user_pk} to int {user_id_for_storage}")
-            elif isinstance(user_pk, int):
-                # Already an integer
-                user_id_for_storage = user_pk
-                logger.info(f"User pk is already int: {user_id_for_storage}")
-            elif isinstance(user_pk, str):
-                # String that might be an ObjectId
-                try:
-                    oid = ObjectId(user_pk)
-                    user_id_for_storage = int(str(oid)[-9:], 16)
-                    logger.info(f"Converted string ObjectId {user_pk} to int {user_id_for_storage}")
-                except:
-                    # Try direct int conversion
-                    try:
-                        user_id_for_storage = int(user_pk)
-                    except:
-                        # Use hash as last resort
-                        user_id_for_storage = abs(hash(user_pk)) % (10 ** 9)
-                    logger.info(f"Converted string {user_pk} to int {user_id_for_storage}")
-            else:
-                # Unknown type, use hash
-                user_id_for_storage = abs(hash(str(user_pk))) % (10 ** 9)
-                logger.warning(f"Unknown pk type {type(user_pk)}, using hash: {user_id_for_storage}")
-            
-            logger.info(f"Final user_id_for_storage: {user_id_for_storage} (type: {type(user_id_for_storage)})")
-            
-            # Create profile with the integer ID
-            profile = UserProfile(
-                user_id=user_id_for_storage,
-                phone_number=phone_number
+            # Create profile
+            profile = UserProfile.objects.create(
+                user_id=user_id,
+                phone_number=phone_number,
+                user_type='customer',
+                is_provider=False
             )
-            profile.save()
             
-            logger.info(f"✅ UserProfile created successfully with user_id: {profile.user_id}")
+            logger.info(f"✅ Customer profile created with user_id: {profile.user_id}")
             
             return user
             
         except Exception as e:
-            logger.error(f"❌ Error in RegisterSerializer.create: {str(e)}")
-            logger.error(f"❌ Error type: {type(e)}")
+            logger.error(f"❌ Error in customer registration: {str(e)}")
+            logger.error(f"❌ Error type: {type(e).__name__}")
+            
             import traceback
             logger.error(traceback.format_exc())
             
-            # Clean up user if profile creation failed
-            if 'user' in locals():
+            # Cleanup on error
+            if profile:
                 try:
-                    user.delete()
+                    profile.delete()
+                    logger.info("🧹 Cleaned up profile")
                 except:
                     pass
             
-            raise
+            if user:
+                try:
+                    user.delete()
+                    logger.info("🧹 Cleaned up user")
+                except:
+                    pass
+            
+            raise serializers.ValidationError(f"Registration failed: {str(e)}")
 
 
 class BookingSerializer(serializers.ModelSerializer):
@@ -244,6 +256,7 @@ class BookingSerializer(serializers.ModelSerializer):
 
 
 class ProviderRegisterSerializer(serializers.ModelSerializer):
+    """Service provider registration serializer"""
     password = serializers.CharField(write_only=True, required=True)
     password2 = serializers.CharField(write_only=True, required=True)
     phone_number = serializers.CharField(required=True)
@@ -261,13 +274,11 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
                   'description', 'availability']
     
     def validate_username(self, value):
-        """Check if username already exists"""
         if User.objects.filter(username=value).exists():
             raise serializers.ValidationError("This username is already taken.")
         return value
     
     def validate_email(self, value):
-        """Check if email already exists"""
         if not value:
             return value
         if User.objects.filter(email=value).exists():
@@ -275,9 +286,11 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
         return value
     
     def validate_phone_number(self, value):
-        """Check if phone number already exists"""
+        # Check both UserProfile and ServiceProvider
         if UserProfile.objects.filter(phone_number=value).exists():
             raise serializers.ValidationError("This phone number is already registered.")
+        if ServiceProvider.objects.filter(phone_number=value).exists():
+            raise serializers.ValidationError("This phone number is already registered as a provider.")
         return value
     
     def validate(self, attrs):
@@ -286,10 +299,7 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
         return attrs
     
     def create(self, validated_data):
-        import logging
-        logger = logging.getLogger(__name__)
-        
-        # Extract provider fields
+        # Extract provider-specific fields
         phone_number = validated_data.pop('phone_number')
         category_name = validated_data.pop('category_name')
         experience_years = validated_data.pop('experience_years')
@@ -299,8 +309,12 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
         availability = validated_data.pop('availability', 'Mon-Sat, 9AM-6PM')
         validated_data.pop('password2')
         
+        user = None
+        profile = None
+        provider = None
+        
         try:
-            # Create user
+            # Step 1: Create Django user
             user = User.objects.create_user(
                 username=validated_data['username'],
                 email=validated_data.get('email', ''),
@@ -309,61 +323,27 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
                 password=validated_data['password']
             )
             
-            logger.info(f"Provider user created: {user.username}, pk: {user.pk}, type: {type(user.pk)}")
+            logger.info(f"✅ Provider user created: {user.username}, pk: {user.pk}")
             
-            # Get user_id
-            user_pk = user.pk
+            # Step 2: Convert user.pk to integer user_id
+            user_id = convert_pk_to_user_id(user.pk)
+            logger.info(f"✅ Converted to user_id: {user_id}")
             
-            # Check if pk is None
-            if user_pk is None:
-                logger.error("User pk is None after creation!")
-                try:
-                    user = User.objects.get(username=user.username)
-                    user_pk = user.pk
-                    logger.info(f"After querying back: pk={user_pk}, type={type(user_pk)}")
-                except User.DoesNotExist:
-                    logger.error("Cannot find user after creation!")
-                    raise Exception("Provider user creation failed - pk is None")
-            
-            # Convert to integer
-            from bson import ObjectId
-            
-            if isinstance(user_pk, ObjectId):
-                user_id_for_storage = int(str(user_pk)[-9:], 16)
-                logger.info(f"Converted ObjectId to int: {user_id_for_storage}")
-            elif isinstance(user_pk, int):
-                user_id_for_storage = user_pk
-                logger.info(f"User pk is already int: {user_id_for_storage}")
-            elif isinstance(user_pk, str):
-                try:
-                    oid = ObjectId(user_pk)
-                    user_id_for_storage = int(str(oid)[-9:], 16)
-                except:
-                    try:
-                        user_id_for_storage = int(user_pk)
-                    except:
-                        user_id_for_storage = abs(hash(user_pk)) % (10 ** 9)
-                logger.info(f"Converted string to int: {user_id_for_storage}")
-            else:
-                user_id_for_storage = abs(hash(str(user_pk))) % (10 ** 9)
-                logger.warning(f"Unknown pk type, using hash: {user_id_for_storage}")
-            
-            logger.info(f"Final provider user_id: {user_id_for_storage}")
-            
-            # Create user profile
-            profile = UserProfile(
-                user_id=user_id_for_storage,
+            # Step 3: Create UserProfile
+            profile = UserProfile.objects.create(
+                user_id=user_id,
                 phone_number=phone_number,
                 user_type='provider',
                 is_provider=True
             )
-            profile.save()
             logger.info(f"✅ UserProfile created with user_id: {profile.user_id}")
             
-            # Create service provider profile
-            provider = ServiceProvider(
-                user_id=user_id_for_storage,
-                name=f"{user.first_name} {user.last_name}" if user.first_name else user.username,
+            # Step 4: Create ServiceProvider profile
+            provider_name = f"{user.first_name} {user.last_name}".strip() if user.first_name else user.username
+            
+            provider = ServiceProvider.objects.create(
+                user_id=user_id,
+                name=provider_name,
                 phone_number=phone_number,
                 email=user.email,
                 category_name=category_name,
@@ -377,37 +357,56 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
                 original_rating=0.0,
                 total_reviews=0
             )
-            provider.save()
-            logger.info(f"✅ ServiceProvider created with user_id: {provider.user_id}")
+            logger.info(f"✅ ServiceProvider created:")
+            logger.info(f"   - _id: {provider._id}")
+            logger.info(f"   - user_id: {provider.user_id}")
+            logger.info(f"   - name: {provider.name}")
+            logger.info(f"   - category: {provider.category_name}")
+            
+            # Step 5: Verify everything is linked correctly
+            verify_profile = UserProfile.objects.get(user_id=user_id)
+            verify_provider = ServiceProvider.objects.get(user_id=user_id)
+            
+            logger.info(f"✅ VERIFICATION SUCCESSFUL:")
+            logger.info(f"   - Django User: {user.username} (pk={user.pk})")
+            logger.info(f"   - Converted user_id: {user_id}")
+            logger.info(f"   - UserProfile.user_id: {verify_profile.user_id}")
+            logger.info(f"   - ServiceProvider.user_id: {verify_provider.user_id}")
+            logger.info(f"   - All IDs match: {user_id == verify_profile.user_id == verify_provider.user_id}")
             
             return user
             
         except Exception as e:
             logger.error(f"❌ Error during provider registration: {str(e)}")
+            logger.error(f"❌ Error type: {type(e).__name__}")
+            
             import traceback
             logger.error(traceback.format_exc())
             
-            # Clean up if something failed
-            if 'user' in locals():
+            # Cleanup on error (in reverse order)
+            if provider:
+                try:
+                    provider.delete()
+                    logger.info("🧹 Cleaned up ServiceProvider")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup provider: {cleanup_error}")
+            
+            if profile:
+                try:
+                    profile.delete()
+                    logger.info("🧹 Cleaned up UserProfile")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup profile: {cleanup_error}")
+            
+            if user:
                 try:
                     user.delete()
-                except:
-                    pass
-            raise
+                    logger.info("🧹 Cleaned up User")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup user: {cleanup_error}")
             
-        except Exception as e:
-            logger.error(f"❌ Error during provider registration: {str(e)}")
-            logger.error(f"❌ Error type: {type(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            
-            # Clean up if something failed
-            if 'user' in locals():
-                try:
-                    user.delete()
-                except:
-                    pass
-            raise
+            raise serializers.ValidationError(f"Provider registration failed: {str(e)}")
+
 
 
 class ServiceProviderSerializer(serializers.ModelSerializer):

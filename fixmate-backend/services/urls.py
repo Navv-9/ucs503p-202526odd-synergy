@@ -43,5 +43,5 @@ urlpatterns = [
     # Test data - /populate-data/
     path('populate-data/', views.populate_fake_data, name='populate_data'),
 
-    path('debug/urls/', views.list_urls, name='list_urls'),
+    path('api/debug/user-info/', views.debug_user_info, name='debug_user_info'),
 ]

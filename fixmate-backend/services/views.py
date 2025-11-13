@@ -11,6 +11,10 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from .models import ServiceCategory, ServiceProvider, Review, UserProfile, Contact, Booking
 from .serializers import RegisterSerializer, UserSerializer, UserProfileSerializer, BookingSerializer, ProviderRegisterSerializer, ServiceProviderSerializer, ProviderBookingSerializer
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # Authentication Views
 @api_view(['POST'])
@@ -58,7 +62,7 @@ def register(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login(request):
-    """Login user"""
+    """Login user - Updated to properly detect service providers"""
     username = request.data.get('username')
     password = request.data.get('password')
     
@@ -71,36 +75,31 @@ def login(request):
     if user:
         refresh = RefreshToken.for_user(user)
         
-        # Get user_id from UserProfile (the source of truth)
+        # Convert user.pk to safe integer ID
+        user_id = get_safe_user_id(user)
+        
+        # Check if user is a service provider by looking in ServiceProvider table
         try:
-            # Try to find profile by checking all profiles
-            all_profiles = list(UserProfile.objects.all())
-            profile = None
-            
-            # Try to match by username
-            for p in all_profiles:
-                try:
-                    profile_user = User.objects.get(id=p.user_id)
-                    if profile_user.username == user.username:
-                        profile = p
-                        break
-                except:
-                    continue
-            
-            if profile:
-                user_id = profile.user_id
-                user_type = profile.user_type
-                is_provider = profile.is_provider
-            else:
-                # No profile found, use safe conversion
-                user_id = get_safe_user_id(user)
-                user_type = 'customer'
-                is_provider = False
-        except Exception as e:
-            # Fallback
-            user_id = get_safe_user_id(user)
-            user_type = 'customer'
+            # First try to find ServiceProvider entry
+            provider = ServiceProvider.objects.get(user_id=user_id)
+            is_provider = True
+            user_type = 'provider'
+            logger.info(f"✅ Found ServiceProvider for user_id {user_id}")
+        except ServiceProvider.DoesNotExist:
+            # Not a provider, check UserProfile
             is_provider = False
+            user_type = 'customer'
+            logger.info(f"ℹ️ No ServiceProvider found for user_id {user_id}, treating as customer")
+        
+        # Also get UserProfile if it exists (for phone, address, etc.)
+        try:
+            profile = UserProfile.objects.get(user_id=user_id)
+            # Update based on profile if it says provider
+            if profile.is_provider:
+                is_provider = True
+                user_type = profile.user_type
+        except UserProfile.DoesNotExist:
+            logger.warning(f"⚠️ No UserProfile found for user_id {user_id}")
         
         return Response({
             'user': {
@@ -124,21 +123,48 @@ def login(request):
 
 def get_safe_user_id(user):
     """Convert user.pk to a safe integer ID for MongoDB compatibility"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     user_pk = user.pk
+    logger.info(f"Converting user.pk: {user_pk} (type: {type(user_pk)})")
+    
+    # If it's already an integer, return it
+    if isinstance(user_pk, int):
+        logger.info(f"Already int: {user_pk}")
+        return user_pk
     
     # If it's an ObjectId, convert it
-    if hasattr(user_pk, 'binary'):
-        from bson import ObjectId
-        if isinstance(user_pk, ObjectId):
-            # Convert ObjectId to consistent integer
-            return int(str(user_pk)[-9:], 16)
+    from bson import ObjectId
+    if isinstance(user_pk, ObjectId):
+        # Convert ObjectId to consistent integer
+        user_id = int(str(user_pk)[-9:], 16)
+        logger.info(f"Converted ObjectId {user_pk} to int {user_id}")
+        return user_id
     
-    # Try to convert to int
-    try:
-        return int(user_pk)
-    except (TypeError, ValueError):
-        # Last resort: hash it
-        return abs(hash(str(user_pk))) % (10 ** 9)
+    # If it's a string
+    if isinstance(user_pk, str):
+        # Try to parse as ObjectId first
+        try:
+            oid = ObjectId(user_pk)
+            user_id = int(str(oid)[-9:], 16)
+            logger.info(f"Converted string ObjectId {user_pk} to int {user_id}")
+            return user_id
+        except:
+            pass
+        
+        # Try direct int conversion
+        try:
+            user_id = int(user_pk)
+            logger.info(f"Converted string to int: {user_id}")
+            return user_id
+        except:
+            pass
+    
+    # Last resort: hash it
+    user_id = abs(hash(str(user_pk))) % (10 ** 10)  # Increased to 10 digits
+    logger.warning(f"Used hash for {user_pk}: {user_id}")
+    return user_id
 
 
 @api_view(['GET'])
@@ -626,9 +652,18 @@ def provider_dashboard(request):
     """Get provider dashboard statistics"""
     try:
         from datetime import datetime, timedelta
+        import logging
+        logger = logging.getLogger(__name__)
         
         user_id = get_safe_user_id(request.user)
+        logger.info(f"🔍 Looking for provider with user_id: {user_id}")
+        
+        # Debug: List all providers
+        all_providers = list(ServiceProvider.objects.all())
+        logger.info(f"📋 All providers in DB: {[(p.name, p.user_id) for p in all_providers]}")
+        
         provider = ServiceProvider.objects.get(user_id=user_id)
+        logger.info(f"✅ Found provider: {provider.name}")
         
         # Get all bookings for this provider
         all_bookings = list(Booking.objects.filter(provider_id=str(provider._id)))
@@ -656,7 +691,72 @@ def provider_dashboard(request):
             }
         })
     except ServiceProvider.DoesNotExist:
-        return Response({'error': 'Provider profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        logger.error(f"❌ Provider profile not found for user_id: {user_id}")
+        logger.error(f"❌ request.user: {request.user}, pk: {request.user.pk}")
+        return Response({
+            'error': 'Provider profile not found',
+            'debug_info': {
+                'user_id_used': user_id,
+                'username': request.user.username,
+                'available_providers': [p.user_id for p in ServiceProvider.objects.all()]
+            }
+        }, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def debug_user_info(request):
+    """Debug endpoint to check user ID and provider status"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    user = request.user
+    user_id = get_safe_user_id(user)
+    
+    # Check UserProfile
+    try:
+        profile = UserProfile.objects.get(user_id=user_id)
+        profile_data = {
+            'found': True,
+            'user_id': profile.user_id,
+            'phone': profile.phone_number,
+            'user_type': profile.user_type,
+            'is_provider': profile.is_provider
+        }
+    except UserProfile.DoesNotExist:
+        profile_data = {'found': False}
+    
+    # Check ServiceProvider
+    try:
+        provider = ServiceProvider.objects.get(user_id=user_id)
+        provider_data = {
+            'found': True,
+            'id': str(provider._id),
+            'user_id': provider.user_id,
+            'name': provider.name,
+            'category': provider.category_name
+        }
+    except ServiceProvider.DoesNotExist:
+        provider_data = {'found': False}
+    
+    # List all providers for comparison
+    all_providers = [
+        {'name': p.name, 'user_id': p.user_id, 'id': str(p._id)} 
+        for p in ServiceProvider.objects.all()
+    ]
+    
+    return Response({
+        'django_user': {
+            'id': user.id,
+            'pk': str(user.pk),
+            'pk_type': str(type(user.pk)),
+            'username': user.username
+        },
+        'converted_user_id': user_id,
+        'user_profile': profile_data,
+        'service_provider': provider_data,
+        'all_providers': all_providers
+    })
+
 
 
 @api_view(['GET'])
