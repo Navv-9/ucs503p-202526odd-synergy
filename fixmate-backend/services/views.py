@@ -808,6 +808,24 @@ def provider_reviews(request):
         return Response({'error': 'Provider profile not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def list_urls(request):
+    """Debug view to list all registered URLs"""
+    from django.urls import get_resolver
+    
+    def get_all_urls(resolver, prefix=''):
+        urls = []
+        for pattern in resolver.url_patterns:
+            if hasattr(pattern, 'url_patterns'):
+                urls.extend(get_all_urls(pattern, prefix + str(pattern.pattern)))
+            else:
+                urls.append(prefix + str(pattern.pattern))
+        return urls
+    
+    all_urls = get_all_urls(get_resolver())
+    return Response({'urls': all_urls})
+
 
 @api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated])
