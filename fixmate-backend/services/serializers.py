@@ -90,41 +90,90 @@ class RegisterSerializer(serializers.ModelSerializer):
         phone_number = validated_data.pop('phone_number')
         validated_data.pop('password2')
         
-        # Create user
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data.get('email', ''),
-            first_name=validated_data.get('first_name', ''),
-            last_name=validated_data.get('last_name', ''),
-            password=validated_data['password']
-        )
-        
-        # CRITICAL FIX: Get the actual integer ID from database
-        # Query the user back to get the real ID Django assigned
-        user = User.objects.get(username=user.username)
-        
-        # Now user.id or user.pk will be the actual integer from database
-        if hasattr(user.pk, 'binary'):
-            # If it's still ObjectId, convert to integer
+        try:
+            # Create user
+            user = User.objects.create_user(
+                username=validated_data['username'],
+                email=validated_data.get('email', ''),
+                first_name=validated_data.get('first_name', ''),
+                last_name=validated_data.get('last_name', ''),
+                password=validated_data['password']
+            )
+            
+            logger.info(f"User created: {user.username}, initial pk: {user.pk}, type: {type(user.pk)}")
+            
+            # Get user_id immediately after creation
+            user_pk = user.pk
+            
+            # Check if pk is None
+            if user_pk is None:
+                logger.error("User pk is None after creation!")
+                # Try to query the user back
+                try:
+                    user = User.objects.get(username=user.username)
+                    user_pk = user.pk
+                    logger.info(f"After querying back: pk={user_pk}, type={type(user_pk)}")
+                except User.DoesNotExist:
+                    logger.error("Cannot find user after creation!")
+                    raise Exception("User creation failed - pk is None")
+            
+            # Convert to integer based on type
             from bson import ObjectId
-            if isinstance(user.pk, ObjectId):
-                # Store ObjectId as string, then convert to consistent integer
-                user_id_for_storage = int(str(user.pk)[-9:], 16)  # Last 9 hex chars as int
+            
+            if isinstance(user_pk, ObjectId):
+                # Convert ObjectId to integer using last 9 hex characters
+                user_id_for_storage = int(str(user_pk)[-9:], 16)
+                logger.info(f"Converted ObjectId {user_pk} to int {user_id_for_storage}")
+            elif isinstance(user_pk, int):
+                # Already an integer
+                user_id_for_storage = user_pk
+                logger.info(f"User pk is already int: {user_id_for_storage}")
+            elif isinstance(user_pk, str):
+                # String that might be an ObjectId
+                try:
+                    oid = ObjectId(user_pk)
+                    user_id_for_storage = int(str(oid)[-9:], 16)
+                    logger.info(f"Converted string ObjectId {user_pk} to int {user_id_for_storage}")
+                except:
+                    # Try direct int conversion
+                    try:
+                        user_id_for_storage = int(user_pk)
+                    except:
+                        # Use hash as last resort
+                        user_id_for_storage = abs(hash(user_pk)) % (10 ** 9)
+                    logger.info(f"Converted string {user_pk} to int {user_id_for_storage}")
             else:
-                user_id_for_storage = int(user.pk)
-        else:
-            user_id_for_storage = int(user.pk)
-        
-        logger.info(f"Created user with ID: {user_id_for_storage} (type: {type(user_id_for_storage)})")
-        
-        # Create profile with the integer ID
-        profile = UserProfile(
-            user_id=user_id_for_storage,
-            phone_number=phone_number
-        )
-        profile.save()
-        
-        return user
+                # Unknown type, use hash
+                user_id_for_storage = abs(hash(str(user_pk))) % (10 ** 9)
+                logger.warning(f"Unknown pk type {type(user_pk)}, using hash: {user_id_for_storage}")
+            
+            logger.info(f"Final user_id_for_storage: {user_id_for_storage} (type: {type(user_id_for_storage)})")
+            
+            # Create profile with the integer ID
+            profile = UserProfile(
+                user_id=user_id_for_storage,
+                phone_number=phone_number
+            )
+            profile.save()
+            
+            logger.info(f"✅ UserProfile created successfully with user_id: {profile.user_id}")
+            
+            return user
+            
+        except Exception as e:
+            logger.error(f"❌ Error in RegisterSerializer.create: {str(e)}")
+            logger.error(f"❌ Error type: {type(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            # Clean up user if profile creation failed
+            if 'user' in locals():
+                try:
+                    user.delete()
+                except:
+                    pass
+            
+            raise
 
 
 class BookingSerializer(serializers.ModelSerializer):
@@ -260,20 +309,46 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
                 password=validated_data['password']
             )
             
-            # CRITICAL FIX: Query user back to get actual ID
-            user = User.objects.get(username=user.username)
+            logger.info(f"Provider user created: {user.username}, pk: {user.pk}, type: {type(user.pk)}")
             
-            # Convert to integer (handle ObjectId case)
-            if hasattr(user.pk, 'binary'):
-                from bson import ObjectId
-                if isinstance(user.pk, ObjectId):
-                    user_id_for_storage = int(str(user.pk)[-9:], 16)
-                else:
-                    user_id_for_storage = int(user.pk)
+            # Get user_id
+            user_pk = user.pk
+            
+            # Check if pk is None
+            if user_pk is None:
+                logger.error("User pk is None after creation!")
+                try:
+                    user = User.objects.get(username=user.username)
+                    user_pk = user.pk
+                    logger.info(f"After querying back: pk={user_pk}, type={type(user_pk)}")
+                except User.DoesNotExist:
+                    logger.error("Cannot find user after creation!")
+                    raise Exception("Provider user creation failed - pk is None")
+            
+            # Convert to integer
+            from bson import ObjectId
+            
+            if isinstance(user_pk, ObjectId):
+                user_id_for_storage = int(str(user_pk)[-9:], 16)
+                logger.info(f"Converted ObjectId to int: {user_id_for_storage}")
+            elif isinstance(user_pk, int):
+                user_id_for_storage = user_pk
+                logger.info(f"User pk is already int: {user_id_for_storage}")
+            elif isinstance(user_pk, str):
+                try:
+                    oid = ObjectId(user_pk)
+                    user_id_for_storage = int(str(oid)[-9:], 16)
+                except:
+                    try:
+                        user_id_for_storage = int(user_pk)
+                    except:
+                        user_id_for_storage = abs(hash(user_pk)) % (10 ** 9)
+                logger.info(f"Converted string to int: {user_id_for_storage}")
             else:
-                user_id_for_storage = int(user.pk)
+                user_id_for_storage = abs(hash(str(user_pk))) % (10 ** 9)
+                logger.warning(f"Unknown pk type, using hash: {user_id_for_storage}")
             
-            logger.info(f"✅ Provider user created with ID: {user_id_for_storage} (type: {type(user_id_for_storage)})")
+            logger.info(f"Final provider user_id: {user_id_for_storage}")
             
             # Create user profile
             profile = UserProfile(
@@ -306,6 +381,19 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
             logger.info(f"✅ ServiceProvider created with user_id: {provider.user_id}")
             
             return user
+            
+        except Exception as e:
+            logger.error(f"❌ Error during provider registration: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            # Clean up if something failed
+            if 'user' in locals():
+                try:
+                    user.delete()
+                except:
+                    pass
+            raise
             
         except Exception as e:
             logger.error(f"❌ Error during provider registration: {str(e)}")
