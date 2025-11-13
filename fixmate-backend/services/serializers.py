@@ -131,6 +131,12 @@ class BookingSerializer(serializers.ModelSerializer):
         return representation
 
 # Provider Registration Serializer - FIXED for Djongo
+from rest_framework import serializers
+from django.contrib.auth.models import User
+from .models import UserProfile, ServiceProvider, Booking
+
+# ... keep other serializers the same ...
+
 class ProviderRegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True)
     password2 = serializers.CharField(write_only=True, required=True)
@@ -182,6 +188,9 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
         return attrs
     
     def create(self, validated_data):
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # Extract provider fields
         phone_number = validated_data.pop('phone_number')
         category_name = validated_data.pop('category_name')
@@ -192,42 +201,64 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
         availability = validated_data.pop('availability', 'Mon-Sat, 9AM-6PM')
         validated_data.pop('password2')
         
-        # Create user
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data.get('email', ''),
-            first_name=validated_data.get('first_name', ''),
-            last_name=validated_data.get('last_name', ''),
-            password=validated_data['password']
-        )
-        
-        # Create user profile
-        UserProfile.objects.create(
-            user=user,
-            phone_number=phone_number,
-            user_type='provider',
-            is_provider=True
-        )
-        
-        # Create service provider profile
-        ServiceProvider.objects.create(
-            user=user,
-            name=f"{user.first_name} {user.last_name}" if user.first_name else user.username,
-            phone_number=phone_number,
-            email=user.email,
-            category_name=category_name,
-            experience_years=experience_years,
-            address=service_area,
-            service_area=service_area,
-            city=city,
-            description=description,
-            availability=availability,
-            rating=0.0,
-            original_rating=0.0,
-            total_reviews=0
-        )
-        
-        return user
+        try:
+            # Step 1: Create user
+            user = User.objects.create_user(
+                username=validated_data['username'],
+                email=validated_data.get('email', ''),
+                first_name=validated_data.get('first_name', ''),
+                last_name=validated_data.get('last_name', ''),
+                password=validated_data['password']
+            )
+            logger.info(f"✅ User created: {user.id} (type: {type(user.id)})")
+            
+            # Step 2: Force refresh user from DB to ensure ID is correct
+            user.refresh_from_db()
+            user_id = int(user.id)  # Force convert to int
+            logger.info(f"✅ User ID after refresh: {user_id} (type: {type(user_id)})")
+            
+            # Step 3: Create user profile with explicit user_id
+            profile = UserProfile(
+                phone_number=phone_number,
+                user_type='provider',
+                is_provider=True
+            )
+            profile.user_id = user_id  # Set user_id directly instead of user object
+            profile.save()
+            logger.info(f"✅ UserProfile created with user_id: {profile.user_id}")
+            
+            # Step 4: Create service provider profile with explicit user_id
+            provider = ServiceProvider(
+                name=f"{user.first_name} {user.last_name}" if user.first_name else user.username,
+                phone_number=phone_number,
+                email=user.email,
+                category_name=category_name,
+                experience_years=experience_years,
+                address=service_area,
+                service_area=service_area,
+                city=city,
+                description=description,
+                availability=availability,
+                rating=0.0,
+                original_rating=0.0,
+                total_reviews=0
+            )
+            provider.user_id = user_id  # Set user_id directly
+            provider.save()
+            logger.info(f"✅ ServiceProvider created with user_id: {provider.user_id}")
+            
+            return user
+            
+        except Exception as e:
+            logger.error(f"❌ Error during provider registration: {str(e)}")
+            logger.error(f"❌ Error type: {type(e)}")
+            # Clean up if something failed
+            try:
+                if 'user' in locals():
+                    user.delete()
+            except:
+                pass
+            raise
 
 
 # Provider Profile Serializer

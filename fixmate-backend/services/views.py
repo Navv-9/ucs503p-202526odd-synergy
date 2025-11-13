@@ -396,8 +396,10 @@ def create_booking(request):
     serializer = BookingSerializer(data=request.data)
     
     if serializer.is_valid():
-        # Save with user ID, not user object
-        booking = serializer.save(user_id=request.user.id)
+        # CHANGED: Set user_id instead of user
+        booking = serializer.save()
+        booking.user_id = request.user.id
+        booking.save()
         return Response({
             'message': 'Booking created successfully!',
             'booking': BookingSerializer(booking).data
@@ -409,11 +411,11 @@ def create_booking(request):
 @permission_classes([IsAuthenticated])
 def get_user_bookings(request):
     """Get all bookings for current user"""
-    bookings_list = list(Booking.objects.filter(user=request.user))  # FIXED: Use list()
+    bookings_list = list(Booking.objects.filter(user_id=request.user.id))  # CHANGED
     serializer = BookingSerializer(bookings_list, many=True)
     
     return Response({
-        'count': len(bookings_list),  # FIXED: Use len() instead of .count()
+        'count': len(bookings_list),
         'bookings': serializer.data
     })
 
@@ -422,11 +424,10 @@ def get_user_bookings(request):
 def cancel_booking(request, booking_id):
     """Cancel a booking"""
     try:
-        # Convert string booking_id to ObjectId
         from bson import ObjectId
         from bson.errors import InvalidId
         object_id = ObjectId(booking_id)
-        booking = Booking.objects.get(_id=object_id, user=request.user)
+        booking = Booking.objects.get(_id=object_id, user_id=request.user.id)  # CHANGED
         booking.status = 'cancelled'
         booking.save()
         
@@ -439,6 +440,7 @@ def cancel_booking(request, booking_id):
         return Response({'error': 'Invalid booking ID'}, status=status.HTTP_400_BAD_REQUEST)
     except Booking.DoesNotExist:
         return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
     
     
 @api_view(['POST'])
@@ -454,7 +456,7 @@ def submit_review(request, provider_id):
         return Response({'error': 'Provider not found'}, status=status.HTTP_404_NOT_FOUND)
     
     # Check if user already reviewed - use list() instead of .exists()
-    existing_reviews = list(Review.objects.filter(user=request.user, provider_id=str(provider_id)))
+    existing_reviews = list(Review.objects.filter(user_id=request.user.id, provider_id=str(provider_id)))
     existing_review = existing_reviews[0] if existing_reviews else None
     
     rating = request.data.get('rating')
@@ -471,13 +473,14 @@ def submit_review(request, provider_id):
         existing_review.save()
         message = 'Review updated successfully!'
     else:
-        Review.objects.create(
-            user=request.user,
+        review = Review(
             provider_id=str(provider_id),
             rating=int(rating),
             comment=comment,
             is_trusted=is_trusted
         )
+        review.user_id = request.user.id
+        review.save()
         message = 'Review submitted successfully!'
     
     # Calculate weighted average - use list() instead of queryset methods
@@ -553,7 +556,7 @@ def provider_dashboard(request):
     try:
         # Get provider profile
         from datetime import datetime, timedelta
-        provider = ServiceProvider.objects.get(user=request.user)
+        provider = ServiceProvider.objects.get(user=request.user.id)
         
         # Get all bookings for this provider
         all_bookings = list(Booking.objects.filter(provider_id=str(provider._id)))
@@ -589,7 +592,7 @@ def provider_dashboard(request):
 def provider_bookings(request):
     """Get all bookings for the provider"""
     try:
-        provider = ServiceProvider.objects.get(user=request.user)
+        provider = ServiceProvider.objects.get(user=request.user.id)
         bookings = list(Booking.objects.filter(provider_id=str(provider._id)).order_by('-created_at'))
         
         # Group by status
@@ -614,7 +617,7 @@ def provider_bookings(request):
 def provider_accept_booking(request, booking_id):
     """Accept a booking request"""
     try:
-        provider = ServiceProvider.objects.get(user=request.user)
+        provider = ServiceProvider.objects.get(user=request.user.id)
         booking = Booking.objects.get(_id=ObjectId(booking_id), provider_id=str(provider._id))
         
         if booking.status != 'pending':
@@ -639,7 +642,7 @@ def provider_accept_booking(request, booking_id):
 def provider_reject_booking(request, booking_id):
     """Reject a booking request"""
     try:
-        provider = ServiceProvider.objects.get(user=request.user)
+        provider = ServiceProvider.objects.get(user=request.user.id)
         booking = Booking.objects.get(_id=ObjectId(booking_id), provider_id=str(provider._id))
         
         if booking.status != 'pending':
@@ -666,7 +669,7 @@ def provider_complete_booking(request, booking_id):
     try:
         from datetime import datetime
         
-        provider = ServiceProvider.objects.get(user=request.user)
+        provider = ServiceProvider.objects.get(user=request.user.id)
         booking = Booking.objects.get(_id=ObjectId(booking_id), provider_id=str(provider._id))
         
         if booking.status not in ['pending', 'accepted']:
@@ -693,7 +696,7 @@ def provider_complete_booking(request, booking_id):
 def provider_reviews(request):
     """Get all reviews for the provider"""
     try:
-        provider = ServiceProvider.objects.get(user=request.user)
+        provider = ServiceProvider.objects.get(user=request.user.id)
         reviews = list(Review.objects.filter(provider_id=str(provider._id)).order_by('-created_at'))
         
         # Group by rating
@@ -729,7 +732,7 @@ def provider_reviews(request):
 def provider_profile(request):
     """Get or update provider profile"""
     try:
-        provider = ServiceProvider.objects.get(user=request.user)
+        provider = ServiceProvider.objects.get(user=request.user.id)
         
         if request.method == 'GET':
             return Response(ServiceProviderSerializer(provider).data)

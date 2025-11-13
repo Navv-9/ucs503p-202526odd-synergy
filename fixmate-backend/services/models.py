@@ -18,8 +18,27 @@ class ServiceCategory(models.Model):
 class ServiceProvider(models.Model):
     _id = models.ObjectIdField(primary_key=True, db_column='_id')
     
-    # NEW: Link to user account
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='provider_profile', null=True, blank=True)
+    # CRITICAL FIX: Store user_id as IntegerField to avoid ObjectId issues
+    user_id = models.IntegerField(null=True, blank=True, db_column='user_id')
+    
+    # Keep this for backward compatibility but don't use it for DB operations
+    @property
+    def user(self):
+        """Get user object from user_id"""
+        if self.user_id:
+            try:
+                return User.objects.get(id=self.user_id)
+            except User.DoesNotExist:
+                return None
+        return None
+    
+    @user.setter
+    def user(self, user_obj):
+        """Set user_id when user object is assigned"""
+        if user_obj:
+            self.user_id = int(user_obj.id)
+        else:
+            self.user_id = None
     
     # Existing fields
     name = models.CharField(max_length=200)
@@ -32,7 +51,7 @@ class ServiceProvider(models.Model):
     experience_years = models.IntegerField(default=0)
     address = models.TextField()
     
-    # NEW: Provider-specific fields
+    # Provider-specific fields
     description = models.TextField(blank=True, default='')
     is_verified = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
@@ -56,13 +75,34 @@ class ServiceProvider(models.Model):
     def __str__(self):
         return f"{self.name} - {self.category_name}"
 
+
 class UserProfile(models.Model):
     id = models.AutoField(primary_key=True)
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    
+    # CRITICAL FIX: Store user_id as IntegerField
+    user_id = models.IntegerField(unique=True, db_column='user_id')
+    
+    # Keep this for backward compatibility
+    @property
+    def user(self):
+        """Get user object from user_id"""
+        if self.user_id:
+            try:
+                return User.objects.get(id=self.user_id)
+            except User.DoesNotExist:
+                return None
+        return None
+    
+    @user.setter
+    def user(self, user_obj):
+        """Set user_id when user object is assigned"""
+        if user_obj:
+            self.user_id = int(user_obj.id)
+    
     phone_number = models.CharField(max_length=20)
     address = models.TextField(blank=True)
     
-    # NEW: User type fields
+    # User type fields
     USER_TYPE_CHOICES = [
         ('customer', 'Customer'),
         ('provider', 'Service Provider'),
@@ -75,12 +115,27 @@ class UserProfile(models.Model):
         db_table = 'user_profile'
     
     def __str__(self):
-        return f"{self.user.username} ({self.user_type})"
+        return f"Profile for user_id {self.user_id} ({self.user_type})"
 
 
 class Contact(models.Model):
     id = models.AutoField(primary_key=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='contacts')
+    user_id = models.IntegerField(db_column='user_id')
+    
+    @property
+    def user(self):
+        if self.user_id:
+            try:
+                return User.objects.get(id=self.user_id)
+            except User.DoesNotExist:
+                return None
+        return None
+    
+    @user.setter
+    def user(self, user_obj):
+        if user_obj:
+            self.user_id = int(user_obj.id)
+    
     name = models.CharField(max_length=200)
     phone_number = models.CharField(max_length=20)
     
@@ -88,12 +143,27 @@ class Contact(models.Model):
         db_table = 'contact'
     
     def __str__(self):
-        return f"{self.name} ({self.user.username})"
+        return f"{self.name} (user_id: {self.user_id})"
 
 
 class Review(models.Model):
     id = models.AutoField(primary_key=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user_id = models.IntegerField(db_column='user_id')
+    
+    @property
+    def user(self):
+        if self.user_id:
+            try:
+                return User.objects.get(id=self.user_id)
+            except User.DoesNotExist:
+                return None
+        return None
+    
+    @user.setter
+    def user(self, user_obj):
+        if user_obj:
+            self.user_id = int(user_obj.id)
+    
     provider_id = models.CharField(max_length=24)
     rating = models.IntegerField()
     comment = models.TextField(blank=True)
@@ -105,7 +175,7 @@ class Review(models.Model):
         db_table = 'review'
     
     def __str__(self):
-        return f"{self.user.username} - Provider {self.provider_id} ({self.rating}★)"
+        return f"user_id {self.user_id} - Provider {self.provider_id} ({self.rating}★)"
 
 
 class Booking(models.Model):
@@ -119,7 +189,22 @@ class Booking(models.Model):
         ('rejected', 'Rejected'),
     ]
     
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user_id = models.IntegerField(db_column='user_id')
+    
+    @property
+    def user(self):
+        if self.user_id:
+            try:
+                return User.objects.get(id=self.user_id)
+            except User.DoesNotExist:
+                return None
+        return None
+    
+    @user.setter
+    def user(self, user_obj):
+        if user_obj:
+            self.user_id = int(user_obj.id)
+    
     provider_id = models.CharField(max_length=24)
     booking_date = models.DateField()
     booking_time = models.TimeField()
@@ -144,4 +229,4 @@ class Booking(models.Model):
         super().save(*args, **kwargs)
     
     def __str__(self):
-        return f"{self.user.username} - Provider {self.provider_id} ({self.booking_date})"
+        return f"user_id {self.user_id} - Provider {self.provider_id} ({self.booking_date})"
