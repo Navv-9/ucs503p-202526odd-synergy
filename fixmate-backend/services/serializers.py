@@ -107,20 +107,39 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ['username', 'email', 'password', 'password2', 'first_name', 'last_name', 'phone_number']
     
     def validate_username(self, value):
-        if User.objects.filter(username=value).exists():
+        """
+        Check if username already exists
+        Using list() instead of .exists() to avoid Djongo recursion issues
+        """
+        users = list(User.objects.filter(username=value)[:1])
+        if users:
             raise serializers.ValidationError("This username is already taken.")
         return value
     
     def validate_email(self, value):
+        """
+        Check if email already exists
+        Using list() instead of .exists() to avoid Djongo recursion issues
+        """
         if not value:
             return value
-        if User.objects.filter(email=value).exists():
+        users = list(User.objects.filter(email=value)[:1])
+        if users:
             raise serializers.ValidationError("This email is already registered.")
         return value
     
     def validate_phone_number(self, value):
-        if UserProfile.objects.filter(phone_number=value).exists():
-            raise serializers.ValidationError("This phone number is already registered.")
+        """
+        Check if phone number already exists
+        Using try-except instead of .exists() to avoid Djongo recursion issues
+        """
+        try:
+            profile = UserProfile.objects.get(phone_number=value)
+            if profile:
+                raise serializers.ValidationError("This phone number is already registered.")
+        except UserProfile.DoesNotExist:
+            pass  # This is good, phone number not found
+        
         return value
     
     def validate(self, attrs):
@@ -274,23 +293,39 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
                   'description', 'availability']
     
     def validate_username(self, value):
-        if User.objects.filter(username=value).exists():
+        """Using list() instead of .exists() to avoid Djongo recursion issues"""
+        users = list(User.objects.filter(username=value)[:1])
+        if users:
             raise serializers.ValidationError("This username is already taken.")
         return value
     
     def validate_email(self, value):
+        """Using list() instead of .exists() to avoid Djongo recursion issues"""
         if not value:
             return value
-        if User.objects.filter(email=value).exists():
+        users = list(User.objects.filter(email=value)[:1])
+        if users:
             raise serializers.ValidationError("This email is already registered.")
         return value
     
     def validate_phone_number(self, value):
-        # Check both UserProfile and ServiceProvider
-        if UserProfile.objects.filter(phone_number=value).exists():
-            raise serializers.ValidationError("This phone number is already registered.")
-        if ServiceProvider.objects.filter(phone_number=value).exists():
+        """
+        Check both UserProfile and ServiceProvider
+        Using try-except instead of .exists() to avoid Djongo recursion issues
+        """
+        # Check UserProfile
+        try:
+            profile = UserProfile.objects.get(phone_number=value)
+            if profile:
+                raise serializers.ValidationError("This phone number is already registered.")
+        except UserProfile.DoesNotExist:
+            pass  # This is good, phone number not found
+        
+        # Check ServiceProvider - use list() instead of filter().exists()
+        providers = list(ServiceProvider.objects.filter(phone_number=value)[:1])
+        if providers:
             raise serializers.ValidationError("This phone number is already registered as a provider.")
+        
         return value
     
     def validate(self, attrs):
