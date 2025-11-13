@@ -20,24 +20,19 @@ def register(request):
     serializer = RegisterSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.save()
-        # REMOVED: user.refresh_from_db() - THIS CAUSES THE ERROR
         
         refresh = RefreshToken.for_user(user)
         
-        # Use user.pk directly instead of user.id
-        user_id = user.pk
-        if not isinstance(user_id, int):
-            try:
-                user_id = int(user_id)
-            except:
-                user_id = abs(hash(str(user_id))) % (10 ** 9)
-        
-        # Get user profile
+        # Get the user_id that was actually stored in UserProfile
         try:
-            profile = UserProfile.objects.get(user_id=user_id)
+            # Query by username to find the profile
+            profile = UserProfile.objects.get(phone_number=serializer.validated_data['phone_number'])
+            user_id = profile.user_id
             user_type = profile.user_type
             is_provider = profile.is_provider
         except UserProfile.DoesNotExist:
+            # Fallback to safe conversion
+            user_id = get_safe_user_id(user)
             user_type = 'customer'
             is_provider = False
         
@@ -76,20 +71,34 @@ def login(request):
     if user:
         refresh = RefreshToken.for_user(user)
         
-        # Use user.pk and ensure it's an integer
-        user_id = user.pk
-        if not isinstance(user_id, int):
-            try:
-                user_id = int(user_id)
-            except:
-                user_id = abs(hash(str(user_id))) % (10 ** 9)
-        
-        # Get user profile
+        # Get user_id from UserProfile (the source of truth)
         try:
-            profile = UserProfile.objects.get(user_id=user_id)
-            user_type = profile.user_type
-            is_provider = profile.is_provider
-        except UserProfile.DoesNotExist:
+            # Try to find profile by checking all profiles
+            all_profiles = list(UserProfile.objects.all())
+            profile = None
+            
+            # Try to match by username
+            for p in all_profiles:
+                try:
+                    profile_user = User.objects.get(id=p.user_id)
+                    if profile_user.username == user.username:
+                        profile = p
+                        break
+                except:
+                    continue
+            
+            if profile:
+                user_id = profile.user_id
+                user_type = profile.user_type
+                is_provider = profile.is_provider
+            else:
+                # No profile found, use safe conversion
+                user_id = get_safe_user_id(user)
+                user_type = 'customer'
+                is_provider = False
+        except Exception as e:
+            # Fallback
+            user_id = get_safe_user_id(user)
             user_type = 'customer'
             is_provider = False
         
@@ -115,13 +124,21 @@ def login(request):
 
 def get_safe_user_id(user):
     """Convert user.pk to a safe integer ID for MongoDB compatibility"""
-    user_id = user.pk
-    if not isinstance(user_id, int):
-        try:
-            user_id = int(user_id)
-        except (TypeError, ValueError):
-            user_id = abs(hash(str(user_id))) % (10 ** 9)
-    return user_id
+    user_pk = user.pk
+    
+    # If it's an ObjectId, convert it
+    if hasattr(user_pk, 'binary'):
+        from bson import ObjectId
+        if isinstance(user_pk, ObjectId):
+            # Convert ObjectId to consistent integer
+            return int(str(user_pk)[-9:], 16)
+    
+    # Try to convert to int
+    try:
+        return int(user_pk)
+    except (TypeError, ValueError):
+        # Last resort: hash it
+        return abs(hash(str(user_pk))) % (10 ** 9)
 
 
 @api_view(['GET'])
@@ -576,16 +593,15 @@ def provider_register(request):
     
     if serializer.is_valid():
         user = serializer.save()
-        # REMOVED: user.refresh_from_db()
         
         refresh = RefreshToken.for_user(user)
         
-        user_id = get_safe_user_id(user)
-        
+        # Get user_id from the created profile
         try:
-            provider = ServiceProvider.objects.get(user_id=user_id)
-        except ServiceProvider.DoesNotExist:
-            provider = None
+            profile = UserProfile.objects.get(phone_number=request.data.get('phone_number'))
+            user_id = profile.user_id
+        except UserProfile.DoesNotExist:
+            user_id = get_safe_user_id(user)
         
         return Response({
             'user': {

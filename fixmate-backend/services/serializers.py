@@ -90,7 +90,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         phone_number = validated_data.pop('phone_number')
         validated_data.pop('password2')
         
-        # Create user WITHOUT calling refresh_from_db()
+        # Create user
         user = User.objects.create_user(
             username=validated_data['username'],
             email=validated_data.get('email', ''),
@@ -99,23 +99,27 @@ class RegisterSerializer(serializers.ModelSerializer):
             password=validated_data['password']
         )
         
-        # CRITICAL: Don't call user.refresh_from_db() with Djongo!
-        # Instead, get the user ID directly after creation
-        user_id = user.pk
+        # CRITICAL FIX: Get the actual integer ID from database
+        # Query the user back to get the real ID Django assigned
+        user = User.objects.get(username=user.username)
         
-        # Ensure user_id is an integer
-        if not isinstance(user_id, int):
-            try:
-                user_id = int(user_id)
-            except (TypeError, ValueError):
-                # If conversion fails, use a hash-based approach
-                user_id = abs(hash(str(user_id))) % (10 ** 9)
+        # Now user.id or user.pk will be the actual integer from database
+        if hasattr(user.pk, 'binary'):
+            # If it's still ObjectId, convert to integer
+            from bson import ObjectId
+            if isinstance(user.pk, ObjectId):
+                # Store ObjectId as string, then convert to consistent integer
+                user_id_for_storage = int(str(user.pk)[-9:], 16)  # Last 9 hex chars as int
+            else:
+                user_id_for_storage = int(user.pk)
+        else:
+            user_id_for_storage = int(user.pk)
         
-        logger.info(f"Created user with ID: {user_id} (type: {type(user_id)})")
+        logger.info(f"Created user with ID: {user_id_for_storage} (type: {type(user_id_for_storage)})")
         
-        # Create profile with explicit user_id
+        # Create profile with the integer ID
         profile = UserProfile(
-            user_id=user_id,
+            user_id=user_id_for_storage,
             phone_number=phone_number
         )
         profile.save()
@@ -233,6 +237,9 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
         return attrs
     
     def create(self, validated_data):
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # Extract provider fields
         phone_number = validated_data.pop('phone_number')
         category_name = validated_data.pop('category_name')
@@ -244,7 +251,7 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
         validated_data.pop('password2')
         
         try:
-            # Create user WITHOUT calling refresh_from_db()
+            # Create user
             user = User.objects.create_user(
                 username=validated_data['username'],
                 email=validated_data.get('email', ''),
@@ -253,21 +260,24 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
                 password=validated_data['password']
             )
             
-            # Get user ID immediately
-            user_id = user.pk
+            # CRITICAL FIX: Query user back to get actual ID
+            user = User.objects.get(username=user.username)
             
-            # Ensure it's an integer
-            if not isinstance(user_id, int):
-                try:
-                    user_id = int(user_id)
-                except (TypeError, ValueError):
-                    user_id = abs(hash(str(user_id))) % (10 ** 9)
+            # Convert to integer (handle ObjectId case)
+            if hasattr(user.pk, 'binary'):
+                from bson import ObjectId
+                if isinstance(user.pk, ObjectId):
+                    user_id_for_storage = int(str(user.pk)[-9:], 16)
+                else:
+                    user_id_for_storage = int(user.pk)
+            else:
+                user_id_for_storage = int(user.pk)
             
-            logger.info(f"✅ User created with ID: {user_id} (type: {type(user_id)})")
+            logger.info(f"✅ Provider user created with ID: {user_id_for_storage} (type: {type(user_id_for_storage)})")
             
             # Create user profile
             profile = UserProfile(
-                user_id=user_id,
+                user_id=user_id_for_storage,
                 phone_number=phone_number,
                 user_type='provider',
                 is_provider=True
@@ -277,7 +287,7 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
             
             # Create service provider profile
             provider = ServiceProvider(
-                user_id=user_id,
+                user_id=user_id_for_storage,
                 name=f"{user.first_name} {user.last_name}" if user.first_name else user.username,
                 phone_number=phone_number,
                 email=user.email,
