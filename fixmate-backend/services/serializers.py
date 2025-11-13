@@ -12,7 +12,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = UserProfile
-        fields = ['user', 'phone_number', 'address']  # FIXED: Removed created_at
+        fields = ['user', 'phone_number', 'address']
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
@@ -24,15 +24,16 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ['username', 'email', 'password', 'password2', 'first_name', 'last_name', 'phone_number']
     
     def validate_username(self, value):
-        """Check if username already exists - using try/except instead of filter"""
+        """Check if username already exists - FIXED for Djongo"""
         try:
+            # Use get() instead of filter().exists() to avoid Djongo recursion bug
             User.objects.get(username=value)
             raise serializers.ValidationError("This username is already taken.")
         except User.DoesNotExist:
             return value
     
     def validate_email(self, value):
-        """Check if email already exists - using try/except instead of filter"""
+        """Check if email already exists - FIXED for Djongo"""
         if not value:
             return value
         try:
@@ -42,7 +43,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             return value
     
     def validate_phone_number(self, value):
-        """Check if phone number already exists - using try/except instead of filter"""
+        """Check if phone number already exists - FIXED for Djongo"""
         try:
             UserProfile.objects.get(phone_number=value)
             raise serializers.ValidationError("This phone number is already registered.")
@@ -128,8 +129,8 @@ class BookingSerializer(serializers.ModelSerializer):
         if hasattr(instance, '_id') and instance._id:
             representation['id'] = str(instance._id)
         return representation
-    
-# Provider Registration Serializer
+
+# Provider Registration Serializer - FIXED for Djongo
 class ProviderRegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True)
     password2 = serializers.CharField(write_only=True, required=True)
@@ -148,6 +149,32 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
         fields = ['username', 'email', 'password', 'password2', 'first_name', 'last_name', 
                   'phone_number', 'category_name', 'experience_years', 'service_area','city', 
                   'description', 'availability']
+    
+    def validate_username(self, value):
+        """Check if username already exists - FIXED for Djongo"""
+        try:
+            User.objects.get(username=value)
+            raise serializers.ValidationError("This username is already taken.")
+        except User.DoesNotExist:
+            return value
+    
+    def validate_email(self, value):
+        """Check if email already exists - FIXED for Djongo"""
+        if not value:
+            return value
+        try:
+            User.objects.get(email=value)
+            raise serializers.ValidationError("This email is already registered.")
+        except User.DoesNotExist:
+            return value
+    
+    def validate_phone_number(self, value):
+        """Check if phone number already exists - FIXED for Djongo"""
+        try:
+            UserProfile.objects.get(phone_number=value)
+            raise serializers.ValidationError("This phone number is already registered.")
+        except UserProfile.DoesNotExist:
+            return value
     
     def validate(self, attrs):
         if attrs['password'] != attrs['password2']:
@@ -195,7 +222,7 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
             city=city,
             description=description,
             availability=availability,
-            rating=0.0,  # Default rating
+            rating=0.0,
             original_rating=0.0,
             total_reviews=0
         )
