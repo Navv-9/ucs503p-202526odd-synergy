@@ -17,11 +17,8 @@ class ServiceCategory(models.Model):
 
 class ServiceProvider(models.Model):
     _id = models.ObjectIdField(primary_key=True, db_column='_id')
-    
-    # CRITICAL FIX: Store user_id as IntegerField to avoid ObjectId issues
     user_id = models.IntegerField(null=True, blank=True, db_column='user_id')
     
-    # Keep this for backward compatibility but don't use it for DB operations
     @property
     def user(self):
         """Get user object from user_id"""
@@ -32,10 +29,6 @@ class ServiceProvider(models.Model):
                 return None
         return None
     
-    # Removed setter to avoid ObjectId conversion issues
-    # Set user_id directly in code instead
-    
-    # Existing fields
     name = models.CharField(max_length=200)
     phone_number = models.CharField(max_length=20, unique=True)
     email = models.EmailField(blank=True, null=True)
@@ -45,8 +38,6 @@ class ServiceProvider(models.Model):
     total_reviews = models.IntegerField(default=0)
     experience_years = models.IntegerField(default=0)
     address = models.TextField()
-    
-    # Provider-specific fields
     description = models.TextField(blank=True, default='')
     is_verified = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
@@ -73,11 +64,8 @@ class ServiceProvider(models.Model):
 
 class UserProfile(models.Model):
     id = models.AutoField(primary_key=True)
-    
-    # CRITICAL FIX: Store user_id as IntegerField
     user_id = models.IntegerField(unique=True, db_column='user_id')
     
-    # Keep this for backward compatibility
     @property
     def user(self):
         """Get user object from user_id"""
@@ -88,16 +76,9 @@ class UserProfile(models.Model):
                 return None
         return None
     
-    @user.setter
-    def user(self, user_obj):
-        """Set user_id when user object is assigned"""
-        if user_obj:
-            self.user_id = int(user_obj.id)
-    
     phone_number = models.CharField(max_length=20)
     address = models.TextField(blank=True)
     
-    # User type fields
     USER_TYPE_CHOICES = [
         ('customer', 'Customer'),
         ('provider', 'Service Provider'),
@@ -126,11 +107,6 @@ class Contact(models.Model):
                 return None
         return None
     
-    @user.setter
-    def user(self, user_obj):
-        if user_obj:
-            self.user_id = int(user_obj.id)
-    
     name = models.CharField(max_length=200)
     phone_number = models.CharField(max_length=20)
     
@@ -153,11 +129,6 @@ class Review(models.Model):
             except User.DoesNotExist:
                 return None
         return None
-    
-    @user.setter
-    def user(self, user_obj):
-        if user_obj:
-            self.user_id = int(user_obj.id)
     
     provider_id = models.CharField(max_length=24)
     rating = models.IntegerField()
@@ -195,18 +166,12 @@ class Booking(models.Model):
                 return None
         return None
     
-    @user.setter
-    def user(self, user_obj):
-        if user_obj:
-            self.user_id = int(user_obj.id)
-    
     provider_id = models.CharField(max_length=24)
     booking_date = models.DateField()
     booking_time = models.TimeField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    
     provider_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     completion_notes = models.TextField(blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)

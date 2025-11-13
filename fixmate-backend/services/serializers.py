@@ -1,11 +1,16 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import UserProfile, ServiceCategory, ServiceProvider, Review, Booking
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'first_name', 'last_name']
+
 
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.SerializerMethodField(read_only=True)
@@ -45,6 +50,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         except User.DoesNotExist:
             return ""
 
+
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
     password2 = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'}, label='Confirm Password')
@@ -55,30 +61,24 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ['username', 'email', 'password', 'password2', 'first_name', 'last_name', 'phone_number']
     
     def validate_username(self, value):
-        """Check if username already exists - FIXED for Djongo"""
-        try:
-            User.objects.get(username=value)
+        """Check if username already exists"""
+        if User.objects.filter(username=value).exists():
             raise serializers.ValidationError("This username is already taken.")
-        except User.DoesNotExist:
-            return value
+        return value
     
     def validate_email(self, value):
-        """Check if email already exists - FIXED for Djongo"""
+        """Check if email already exists"""
         if not value:
             return value
-        try:
-            User.objects.get(email=value)
+        if User.objects.filter(email=value).exists():
             raise serializers.ValidationError("This email is already registered.")
-        except User.DoesNotExist:
-            return value
+        return value
     
     def validate_phone_number(self, value):
-        """Check if phone number already exists - FIXED for Djongo"""
-        try:
-            UserProfile.objects.get(phone_number=value)
+        """Check if phone number already exists"""
+        if UserProfile.objects.filter(phone_number=value).exists():
             raise serializers.ValidationError("This phone number is already registered.")
-        except UserProfile.DoesNotExist:
-            return value
+        return value
     
     def validate(self, attrs):
         """Check if passwords match"""
@@ -90,7 +90,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         phone_number = validated_data.pop('phone_number')
         validated_data.pop('password2')
         
-        # Create user
+        # Create user WITHOUT calling refresh_from_db()
         user = User.objects.create_user(
             username=validated_data['username'],
             email=validated_data.get('email', ''),
@@ -99,40 +99,43 @@ class RegisterSerializer(serializers.ModelSerializer):
             password=validated_data['password']
         )
         
-        # Force refresh to get the actual saved ID
-        user.refresh_from_db()
+        # CRITICAL: Don't call user.refresh_from_db() with Djongo!
+        # Instead, get the user ID directly after creation
+        user_id = user.pk
         
-        # Create profile with explicit user_id (handle ObjectId case)
-        profile = UserProfile(phone_number=phone_number)
-        try:
-            # Try to convert to int (works if it's an integer ID)
-            profile.user_id = int(user.id)
-        except (TypeError, ValueError):
-            # If it's an ObjectId, convert to string then to its integer representation
-            from bson import ObjectId
-            if isinstance(user.id, ObjectId):
-                # Store the string representation of ObjectId
-                profile.user_id = hash(str(user.id)) % (10 ** 10)  # Convert to 10-digit int
-            else:
-                profile.user_id = int(str(user.id))
+        # Ensure user_id is an integer
+        if not isinstance(user_id, int):
+            try:
+                user_id = int(user_id)
+            except (TypeError, ValueError):
+                # If conversion fails, use a hash-based approach
+                user_id = abs(hash(str(user_id))) % (10 ** 9)
         
+        logger.info(f"Created user with ID: {user_id} (type: {type(user_id)})")
+        
+        # Create profile with explicit user_id
+        profile = UserProfile(
+            user_id=user_id,
+            phone_number=phone_number
+        )
         profile.save()
         
         return user
 
+
 class BookingSerializer(serializers.ModelSerializer):
     provider_id = serializers.CharField(max_length=24)
-    user_name = serializers.SerializerMethodField(read_only=True)  # CHANGED
+    user_name = serializers.SerializerMethodField(read_only=True)
     provider_name = serializers.SerializerMethodField(read_only=True)
     provider_category = serializers.SerializerMethodField(read_only=True)
     provider_phone = serializers.SerializerMethodField(read_only=True)
     
     class Meta:
         model = Booking
-        fields = ['id', 'user_id', 'user_name', 'provider_id', 'provider_name',  # CHANGED: user -> user_id
+        fields = ['id', 'user_id', 'user_name', 'provider_id', 'provider_name',
                   'provider_category', 'provider_phone', 'booking_date', 'booking_time', 
                   'status', 'notes', 'created_at']
-        read_only_fields = ['user_id', 'created_at', 'status']  # CHANGED: user -> user_id
+        read_only_fields = ['user_id', 'created_at', 'status']
     
     def get_user_name(self, obj):
         """Get username from user_id"""
@@ -186,13 +189,11 @@ class BookingSerializer(serializers.ModelSerializer):
             representation['id'] = str(instance._id)
         return representation
 
-# Provider Registration Serializer - FIXED for Djongo ObjectId issues
+
 class ProviderRegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True)
     password2 = serializers.CharField(write_only=True, required=True)
     phone_number = serializers.CharField(required=True)
-    
-    # Provider-specific fields
     category_name = serializers.CharField(required=True)
     experience_years = serializers.IntegerField(required=True)
     service_area = serializers.CharField(required=True)
@@ -203,34 +204,28 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['username', 'email', 'password', 'password2', 'first_name', 'last_name', 
-                  'phone_number', 'category_name', 'experience_years', 'service_area','city', 
+                  'phone_number', 'category_name', 'experience_years', 'service_area', 'city', 
                   'description', 'availability']
     
     def validate_username(self, value):
-        """Check if username already exists - FIXED for Djongo"""
-        try:
-            User.objects.get(username=value)
+        """Check if username already exists"""
+        if User.objects.filter(username=value).exists():
             raise serializers.ValidationError("This username is already taken.")
-        except User.DoesNotExist:
-            return value
+        return value
     
     def validate_email(self, value):
-        """Check if email already exists - FIXED for Djongo"""
+        """Check if email already exists"""
         if not value:
             return value
-        try:
-            User.objects.get(email=value)
+        if User.objects.filter(email=value).exists():
             raise serializers.ValidationError("This email is already registered.")
-        except User.DoesNotExist:
-            return value
+        return value
     
     def validate_phone_number(self, value):
-        """Check if phone number already exists - FIXED for Djongo"""
-        try:
-            UserProfile.objects.get(phone_number=value)
+        """Check if phone number already exists"""
+        if UserProfile.objects.filter(phone_number=value).exists():
             raise serializers.ValidationError("This phone number is already registered.")
-        except UserProfile.DoesNotExist:
-            return value
+        return value
     
     def validate(self, attrs):
         if attrs['password'] != attrs['password2']:
@@ -238,9 +233,6 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
         return attrs
     
     def create(self, validated_data):
-        import logging
-        logger = logging.getLogger(__name__)
-        
         # Extract provider fields
         phone_number = validated_data.pop('phone_number')
         category_name = validated_data.pop('category_name')
@@ -252,7 +244,7 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
         validated_data.pop('password2')
         
         try:
-            # Create user
+            # Create user WITHOUT calling refresh_from_db()
             user = User.objects.create_user(
                 username=validated_data['username'],
                 email=validated_data.get('email', ''),
@@ -261,36 +253,31 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
                 password=validated_data['password']
             )
             
-            # Force refresh to get the actual saved ID
-            user.refresh_from_db()
-            logger.info(f"✅ User created: {user.id} (type: {type(user.id)})")
+            # Get user ID immediately
+            user_id = user.pk
             
-            # Convert user.id to integer (handle ObjectId case)
-            try:
-                user_id_int = int(user.id)
-            except (TypeError, ValueError):
-                from bson import ObjectId
-                if isinstance(user.id, ObjectId):
-                    # Convert ObjectId to a consistent integer representation
-                    user_id_int = hash(str(user.id)) % (10 ** 10)
-                    logger.warning(f"⚠️ User ID is ObjectId, converted to: {user_id_int}")
-                else:
-                    user_id_int = int(str(user.id))
+            # Ensure it's an integer
+            if not isinstance(user_id, int):
+                try:
+                    user_id = int(user_id)
+                except (TypeError, ValueError):
+                    user_id = abs(hash(str(user_id))) % (10 ** 9)
             
-            logger.info(f"✅ Using user_id_int: {user_id_int}")
+            logger.info(f"✅ User created with ID: {user_id} (type: {type(user_id)})")
             
             # Create user profile
             profile = UserProfile(
+                user_id=user_id,
                 phone_number=phone_number,
                 user_type='provider',
                 is_provider=True
             )
-            profile.user_id = user_id_int
             profile.save()
             logger.info(f"✅ UserProfile created with user_id: {profile.user_id}")
             
             # Create service provider profile
             provider = ServiceProvider(
+                user_id=user_id,
                 name=f"{user.first_name} {user.last_name}" if user.first_name else user.username,
                 phone_number=phone_number,
                 email=user.email,
@@ -305,7 +292,6 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
                 original_rating=0.0,
                 total_reviews=0
             )
-            provider.user_id = user_id_int
             provider.save()
             logger.info(f"✅ ServiceProvider created with user_id: {provider.user_id}")
             
@@ -316,16 +302,16 @@ class ProviderRegisterSerializer(serializers.ModelSerializer):
             logger.error(f"❌ Error type: {type(e)}")
             import traceback
             logger.error(traceback.format_exc())
+            
             # Clean up if something failed
-            try:
-                if 'user' in locals():
+            if 'user' in locals():
+                try:
                     user.delete()
-            except:
-                pass
+                except:
+                    pass
             raise
 
 
-# Provider Profile Serializer
 class ServiceProviderSerializer(serializers.ModelSerializer):
     id = serializers.SerializerMethodField()
     
@@ -340,10 +326,9 @@ class ServiceProviderSerializer(serializers.ModelSerializer):
         return str(obj._id) if obj._id else None
 
 
-# Provider Booking Serializer
 class ProviderBookingSerializer(serializers.ModelSerializer):
     id = serializers.SerializerMethodField()
-    customer_name = serializers.SerializerMethodField(read_only=True)  # CHANGED
+    customer_name = serializers.SerializerMethodField(read_only=True)
     customer_phone = serializers.SerializerMethodField()
     customer_address = serializers.SerializerMethodField()
     

@@ -20,11 +20,21 @@ def register(request):
     serializer = RegisterSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.save()
+        # REMOVED: user.refresh_from_db() - THIS CAUSES THE ERROR
+        
         refresh = RefreshToken.for_user(user)
         
-        # Get user profile - CHANGED: Use user_id
+        # Use user.pk directly instead of user.id
+        user_id = user.pk
+        if not isinstance(user_id, int):
+            try:
+                user_id = int(user_id)
+            except:
+                user_id = abs(hash(str(user_id))) % (10 ** 9)
+        
+        # Get user profile
         try:
-            profile = UserProfile.objects.get(user_id=user.id)
+            profile = UserProfile.objects.get(user_id=user_id)
             user_type = profile.user_type
             is_provider = profile.is_provider
         except UserProfile.DoesNotExist:
@@ -33,7 +43,7 @@ def register(request):
         
         return Response({
             'user': {
-                'id': str(user.id),
+                'id': str(user_id),
                 'username': user.username,
                 'email': user.email,
                 'first_name': user.first_name,
@@ -66,9 +76,17 @@ def login(request):
     if user:
         refresh = RefreshToken.for_user(user)
         
-        # Get user profile to check user type - CHANGED: Use user_id
+        # Use user.pk and ensure it's an integer
+        user_id = user.pk
+        if not isinstance(user_id, int):
+            try:
+                user_id = int(user_id)
+            except:
+                user_id = abs(hash(str(user_id))) % (10 ** 9)
+        
+        # Get user profile
         try:
-            profile = UserProfile.objects.get(user_id=user.id)
+            profile = UserProfile.objects.get(user_id=user_id)
             user_type = profile.user_type
             is_provider = profile.is_provider
         except UserProfile.DoesNotExist:
@@ -77,7 +95,7 @@ def login(request):
         
         return Response({
             'user': {
-                'id': str(user.id),
+                'id': str(user_id),
                 'username': user.username,
                 'email': user.email,
                 'first_name': user.first_name,
@@ -95,12 +113,24 @@ def login(request):
     return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
 
 
+def get_safe_user_id(user):
+    """Convert user.pk to a safe integer ID for MongoDB compatibility"""
+    user_id = user.pk
+    if not isinstance(user_id, int):
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            user_id = abs(hash(str(user_id))) % (10 ** 9)
+    return user_id
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_user_profile(request):
     """Get current user profile"""
     try:
-        profile = UserProfile.objects.get(user_id=request.user.id)  # CHANGED
+        user_id = get_safe_user_id(request.user)
+        profile = UserProfile.objects.get(user_id=user_id)
         serializer = UserProfileSerializer(profile)
         return Response(serializer.data)
     except UserProfile.DoesNotExist:
@@ -213,8 +243,8 @@ def get_trusted_friends(provider, request):
             'names': []
         }
     
-    # Use user ID for consistent results
-    user_id = request.user.id
+    # FIXED: Use get_safe_user_id instead of request.user.id
+    user_id = get_safe_user_id(request.user)
     
     # Generate the same contact reviews as provider_detail will
     contact_reviews = generate_contact_reviews_for_provider(str(provider._id), user_id)
@@ -249,7 +279,7 @@ def get_trusted_friends(provider, request):
         }
 
 @api_view(['GET'])
-@permission_classes([AllowAny])  # Allow both authenticated and non-authenticated
+@permission_classes([AllowAny])
 def provider_detail(request, provider_id):
     """Get detailed info about a specific provider with reviews"""
     import random
@@ -264,8 +294,15 @@ def provider_detail(request, provider_id):
     
     actual_reviews = []
     for review in db_reviews:
+        # FIXED: Get username from user_id instead of review.user.username
+        try:
+            user = User.objects.get(id=review.user_id)
+            username = user.username
+        except User.DoesNotExist:
+            username = "Unknown"
+        
         actual_reviews.append({
-            'user': review.user.username,
+            'user': username,
             'is_contact': False,
             'rating': review.rating,
             'comment': review.comment,
@@ -277,7 +314,8 @@ def provider_detail(request, provider_id):
     # Generate contact reviews ONLY if authenticated
     contact_reviews = []
     if request.user.is_authenticated:
-        user_id = request.user.id
+        # FIXED: Use get_safe_user_id instead of request.user.id
+        user_id = get_safe_user_id(request.user)
         # Use the helper function for consistency with list page
         contact_reviews_data = generate_contact_reviews_for_provider(str(provider._id), user_id)
         
@@ -373,7 +411,7 @@ def provider_detail(request, provider_id):
             'email': provider.email,
             'category': provider.category_name,
             'address': provider.address,
-            'city': provider.city,  # ADD THIS LINE
+            'city': provider.city,
             'service_area': provider.service_area,
             'experience_years': provider.experience_years,
             'rating': provider.rating,
@@ -397,16 +435,18 @@ def create_booking(request):
     serializer = BookingSerializer(data=request.data)
     
     if serializer.is_valid():
-        # Create booking without saving
+        user_id = get_safe_user_id(request.user)
+        
+        # Create booking
         booking = Booking(
+            user_id=user_id,
             provider_id=serializer.validated_data['provider_id'],
             booking_date=serializer.validated_data['booking_date'],
             booking_time=serializer.validated_data['booking_time'],
             notes=serializer.validated_data.get('notes', ''),
             status='pending'
         )
-        booking.user_id = request.user.id
-        booking.save()  # Save only once
+        booking.save()
         
         return Response({
             'message': 'Booking created successfully!',
@@ -419,7 +459,8 @@ def create_booking(request):
 @permission_classes([IsAuthenticated])
 def get_user_bookings(request):
     """Get all bookings for current user"""
-    bookings_list = list(Booking.objects.filter(user_id=request.user.id))  # CHANGED
+    user_id = get_safe_user_id(request.user)
+    bookings_list = list(Booking.objects.filter(user_id=user_id))
     serializer = BookingSerializer(bookings_list, many=True)
     
     return Response({
@@ -434,8 +475,10 @@ def cancel_booking(request, booking_id):
     try:
         from bson import ObjectId
         from bson.errors import InvalidId
+        
+        user_id = get_safe_user_id(request.user)
         object_id = ObjectId(booking_id)
-        booking = Booking.objects.get(_id=object_id, user_id=request.user.id)  # CHANGED
+        booking = Booking.objects.get(_id=object_id, user_id=user_id)
         booking.status = 'cancelled'
         booking.save()
         
@@ -456,6 +499,9 @@ def cancel_booking(request, booking_id):
 def submit_review(request, provider_id):
     """Submit a review for a service provider"""
     try:
+        from bson import ObjectId
+        from bson.errors import InvalidId
+        
         object_id = ObjectId(provider_id)
         provider = ServiceProvider.objects.get(_id=object_id)
     except (InvalidId, ValueError):
@@ -463,8 +509,10 @@ def submit_review(request, provider_id):
     except ServiceProvider.DoesNotExist:
         return Response({'error': 'Provider not found'}, status=status.HTTP_404_NOT_FOUND)
     
-    # CHANGED: Check if user already reviewed - use user_id
-    existing_reviews = list(Review.objects.filter(user_id=request.user.id, provider_id=str(provider_id)))
+    user_id = get_safe_user_id(request.user)
+    
+    # Check if user already reviewed
+    existing_reviews = list(Review.objects.filter(user_id=user_id, provider_id=str(provider_id)))
     existing_review = existing_reviews[0] if existing_reviews else None
     
     rating = request.data.get('rating')
@@ -481,18 +529,17 @@ def submit_review(request, provider_id):
         existing_review.save()
         message = 'Review updated successfully!'
     else:
-        # CHANGED: Create with user_id
         review = Review(
+            user_id=user_id,
             provider_id=str(provider_id),
             rating=int(rating),
             comment=comment,
             is_trusted=is_trusted
         )
-        review.user_id = request.user.id
         review.save()
         message = 'Review submitted successfully!'
     
-    # Calculate weighted average - use list()
+    # Calculate weighted average
     real_reviews_list = list(Review.objects.filter(provider_id=str(provider_id)))
     fake_count = 10
     fake_rating = provider.original_rating
@@ -529,17 +576,20 @@ def provider_register(request):
     
     if serializer.is_valid():
         user = serializer.save()
+        # REMOVED: user.refresh_from_db()
+        
         refresh = RefreshToken.for_user(user)
         
-        # CHANGED: Get provider using user_id instead of user
+        user_id = get_safe_user_id(user)
+        
         try:
-            provider = ServiceProvider.objects.get(user_id=user.id)
+            provider = ServiceProvider.objects.get(user_id=user_id)
         except ServiceProvider.DoesNotExist:
             provider = None
         
         return Response({
             'user': {
-                'id': user.id,
+                'id': user_id,
                 'username': user.username,
                 'email': user.email,
                 'user_type': 'provider'
@@ -560,7 +610,9 @@ def provider_dashboard(request):
     """Get provider dashboard statistics"""
     try:
         from datetime import datetime, timedelta
-        provider = ServiceProvider.objects.get(user_id=request.user.id)  # CHANGED
+        
+        user_id = get_safe_user_id(request.user)
+        provider = ServiceProvider.objects.get(user_id=user_id)
         
         # Get all bookings for this provider
         all_bookings = list(Booking.objects.filter(provider_id=str(provider._id)))
@@ -596,7 +648,9 @@ def provider_dashboard(request):
 def provider_bookings(request):
     """Get all bookings for the provider"""
     try:
-        provider = ServiceProvider.objects.get(user_id=request.user.id)  # CHANGED
+        # FIXED: Use get_safe_user_id instead of request.user.id
+        user_id = get_safe_user_id(request.user)
+        provider = ServiceProvider.objects.get(user_id=user_id)
         bookings = list(Booking.objects.filter(provider_id=str(provider._id)))
         
         # Group by status
@@ -616,12 +670,15 @@ def provider_bookings(request):
         return Response({'error': 'Provider profile not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
+
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
 def provider_accept_booking(request, booking_id):
     """Accept a booking request"""
     try:
-        provider = ServiceProvider.objects.get(user_id=request.user.id)  # CHANGED
+        # FIXED: Use get_safe_user_id instead of request.user.id
+        user_id = get_safe_user_id(request.user)
+        provider = ServiceProvider.objects.get(user_id=user_id)
         booking = Booking.objects.get(_id=ObjectId(booking_id), provider_id=str(provider._id))
         
         if booking.status != 'pending':
@@ -642,12 +699,15 @@ def provider_accept_booking(request, booking_id):
 
 
 
+
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
 def provider_reject_booking(request, booking_id):
     """Reject a booking request"""
     try:
-        provider = ServiceProvider.objects.get(user_id=request.user.id)  # CHANGED
+        # FIXED: Use get_safe_user_id instead of request.user.id
+        user_id = get_safe_user_id(request.user)
+        provider = ServiceProvider.objects.get(user_id=user_id)
         booking = Booking.objects.get(_id=ObjectId(booking_id), provider_id=str(provider._id))
         
         if booking.status != 'pending':
@@ -667,6 +727,7 @@ def provider_reject_booking(request, booking_id):
         return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
+
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
 def provider_complete_booking(request, booking_id):
@@ -674,7 +735,9 @@ def provider_complete_booking(request, booking_id):
     try:
         from datetime import datetime
         
-        provider = ServiceProvider.objects.get(user_id=request.user.id)  # CHANGED
+        # FIXED: Use get_safe_user_id instead of request.user.id
+        user_id = get_safe_user_id(request.user)
+        provider = ServiceProvider.objects.get(user_id=user_id)
         booking = Booking.objects.get(_id=ObjectId(booking_id), provider_id=str(provider._id))
         
         if booking.status not in ['pending', 'accepted']:
@@ -697,12 +760,15 @@ def provider_complete_booking(request, booking_id):
 
 
 
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def provider_reviews(request):
     """Get all reviews for the provider"""
     try:
-        provider = ServiceProvider.objects.get(user_id=request.user.id)  # CHANGED
+        # FIXED: Use get_safe_user_id instead of request.user.id
+        user_id = get_safe_user_id(request.user)
+        provider = ServiceProvider.objects.get(user_id=user_id)
         reviews = list(Review.objects.filter(provider_id=str(provider._id)))
         
         # Group by rating
@@ -748,7 +814,9 @@ def provider_reviews(request):
 def provider_profile(request):
     """Get or update provider profile"""
     try:
-        provider = ServiceProvider.objects.get(user_id=request.user.id)  # CHANGED
+        # FIXED: Use get_safe_user_id instead of request.user.id
+        user_id = get_safe_user_id(request.user)
+        provider = ServiceProvider.objects.get(user_id=user_id)
         
         if request.method == 'GET':
             return Response(ServiceProviderSerializer(provider).data)
