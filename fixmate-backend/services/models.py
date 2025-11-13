@@ -32,13 +32,8 @@ class ServiceProvider(models.Model):
                 return None
         return None
     
-    @user.setter
-    def user(self, user_obj):
-        """Set user_id when user object is assigned"""
-        if user_obj:
-            self.user_id = int(user_obj.id)
-        else:
-            self.user_id = None
+    # Removed setter to avoid ObjectId conversion issues
+    # Set user_id directly in code instead
     
     # Existing fields
     name = models.CharField(max_length=200)
